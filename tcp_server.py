@@ -161,6 +161,7 @@ class AsyncTCPServer(IServer):
 
         if msg_type == 'heartbeat':
             session.update_heartbeat()
+            print(f"New heartbeat message from {session}")
             response = {'type': 'heartbeat', 'content': 'pong'}
             await self.send_message(session, response)
 

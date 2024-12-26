@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict
 
-from src.interaction.prototype.tcp_interfaces import IMessageHandler
+from tcp_interfaces import IMessageHandler
 
 
 class JSONMessageHandler(IMessageHandler):
