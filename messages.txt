@@ -1,0 +1,3 @@
+Hello Server
+How are you?
+exit
