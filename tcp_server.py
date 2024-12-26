@@ -7,11 +7,10 @@ from message import JSONMessageHandler
 from tcp_interfaces import IServer, ISession
 
 
-class Session(ISession):
+class TCPSession(ISession):
     """TCP会话实现类"""
 
-    def __init__(self, session_id: str, writer: asyncio.StreamWriter,
-                 client_address: str):
+    def __init__(self, session_id: str, writer: asyncio.StreamWriter, client_address: str):
         self._session_id = session_id
         self._writer = writer
         self._client_address = client_address
@@ -50,7 +49,7 @@ class Session(ISession):
 
 
 class AsyncTCPServer(IServer):
-    """异步TCP服务器实现类"""
+    """TCP服务器实现类"""
 
     def __init__(self, host: str = 'localhost', port: int = 9999):
         self.host = host
@@ -89,14 +88,14 @@ class AsyncTCPServer(IServer):
             reader: asyncio.StreamReader,
             writer: asyncio.StreamWriter
     ) -> None:
-        """处理新的客户端连接,包含会话建立过程"""
+        """处理新的客户端连接"""
         addr = writer.get_extra_info('peername')
         client_address = f"{addr[0]}:{addr[1]}"
         session_id = str(uuid.uuid4())
-        session = Session(session_id, writer, client_address)
+        session = TCPSession(session_id, writer, client_address)
 
-        # 发送会话建立消息
         try:
+            # 发送会话建立消息
             handshake_message = {
                 'type': 'session_init',
                 'content': 'Session established',
@@ -161,8 +160,11 @@ class AsyncTCPServer(IServer):
 
         if msg_type == 'heartbeat':
             session.update_heartbeat()
-            print(f"New heartbeat message from {session}")
-            response = {'type': 'heartbeat', 'content': 'pong'}
+            response = {
+                'type': 'heartbeat',
+                'content': 'pong',
+                'session_id': session.session_id
+            }
             await self.send_message(session, response)
 
         elif msg_type == 'message':
@@ -182,7 +184,7 @@ class AsyncTCPServer(IServer):
         if session.is_connected:
             try:
                 data = self.message_handler.encode_message(message)
-                session.writer.write(data)  # 这里需要访问内部writer
+                session.writer.write(data)
                 await session.writer.drain()
             except Exception as e:
                 print(f"Error sending message to {session}: {e}")
@@ -195,8 +197,7 @@ class AsyncTCPServer(IServer):
             current_time = time.time()
 
             for session_id, session in list(self.sessions.items()):
-                if (current_time - session.last_heartbeat
-                        > timeout * max_retries):  # 访问内部状态
+                if (current_time - session.last_heartbeat > timeout * max_retries):
                     print(f"Session {session} heartbeat timeout")
                     await self.remove_session(session_id)
 
@@ -210,7 +211,12 @@ class AsyncTCPServer(IServer):
 
 
 async def main():
-    server = AsyncTCPServer()
+    import sys
+
+    host = sys.argv[1] if len(sys.argv) > 1 else 'localhost'
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 9999
+
+    server = AsyncTCPServer(host, port)
     try:
         await server.start()
     except KeyboardInterrupt:
