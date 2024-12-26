@@ -1,0 +1,3 @@
+Hello Server 2
+How do you do?
+exit

@@ -1,198 +1,216 @@
-# Python Async Socket Communication Framework
+# Async Socket Chat
 
-这是一个基于Python asyncio的TCP和Unix套接字通信框架，支持文件命令和交互式两种客户端模式。
+A demonstration of asynchronous socket-based client-server communication supporting both TCP and Unix sockets, with enhanced message handling and session management.
 
-## 功能特性
+## Features
 
-- 支持TCP和Unix套接字通信
-- 提供文件命令和交互式两种客户端模式
-- 基于asyncio的异步实现
-- 内置会话管理和心跳机制
-- JSON格式消息支持
-- 模块化和可扩展的设计
+- Supports both TCP and Unix socket communication
+- Multiple client connection modes (interactive CLI and file-based input)
+- Robust message protocol with encryption and integrity checks
+- Session management with heartbeat monitoring
+- Asynchronous I/O using Python's asyncio
+- Extensible base classes for custom implementations
 
-## 安装
+## Architecture
 
-### 依赖要求
+### Core Components
 
-- Python 3.7+
-- aioconsole
+- **Message Protocol**: Enhanced binary protocol with CRC32 checksums and HMAC authentication
+- **Session Management**: UUID-based session tracking with heartbeat monitoring
+- **Base Classes**: Abstract implementations for server, client, and session management
+- **Interface Definitions**: Clear contract definitions through abstract base classes
 
-安装依赖：
+### Message Types
+
+- SESSION_INIT/ACK: Session establishment
+- HEARTBEAT: Connection health monitoring
+- MESSAGE: Regular communication
+- ERROR: Error notifications
+- DISCONNECT: Clean session termination
+
+## Installation
+
 ```bash
-pip install aioconsole
+pip install -r requirements.txt
 ```
 
-### 文件结构
+The server will handle all client interactions concurrently, maintaining separate sessions for each connection.
 
-```
-.
-├── README.md
-├── base_client.py          # 客户端基类
-├── message.py             # 消息处理
-├── tcp_interfaces.py      # 接口定义
-├── tcp_server.py         # TCP服务器实现
-├── tcp_client.py         # TCP客户端实现
-├── unix_server.py        # Unix套接字服务器实现
-└── unix_client.py        # Unix套接字客户端实现
-```
+## Usage
 
-## 使用方法
+### Starting the Server
 
-### TCP服务器
-
-启动TCP服务器：
+TCP Server:
 ```bash
 python tcp_server.py [host] [port]
+# Default: localhost:9999
 ```
 
-参数说明：
-- host: 服务器地址（默认：localhost）
-- port: 端口号（默认：9999）
-
-### TCP客户端
-
-1. 文件命令模式：
+Unix Socket Server:
 ```bash
-python tcp_client.py file messages.txt [host] [port]
+python unix_server.py [socket_path]
+# Default: /tmp/chat.sock
 ```
 
-2. 交互式模式：
+### Running Clients
+
+#### TCP Client
+
+Interactive Mode:
 ```bash
 python tcp_client.py interactive [host] [port]
 ```
 
-参数说明：
-- messages.txt: 包含命令的文件
-- host: 服务器地址（默认：localhost）
-- port: 端口号（默认：9999）
-
-### Unix套接字服务器
-
-启动Unix套接字服务器：
+File Input Mode:
 ```bash
-python unix_server.py [socket_path]
+python tcp_client.py file messages.txt [host] [port]
 ```
 
-参数说明：
-- socket_path: Unix套接字文件路径（默认：/tmp/chat.sock）
+#### Unix Socket Client
 
-### Unix套接字客户端
-
-1. 文件命令模式：
-```bash
-python unix_client.py file messages.txt [socket_path]
-```
-
-2. 交互式模式：
+Interactive Mode:
 ```bash
 python unix_client.py interactive [socket_path]
 ```
 
-参数说明：
-- messages.txt: 包含命令的文件
-- socket_path: Unix套接字文件路径（默认：/tmp/chat.sock）
-
-## 消息文件格式
-
-消息文件（如messages.txt）的格式为每行一条命令：
-```
-Hello Server
-How are you?
-exit
+File Input Mode:
+```bash
+python unix_client.py file messages.txt [socket_path]
 ```
 
-注意：
-- 每行一条命令
-- exit命令将终止客户端
-- 空行会被忽略
+### Client Commands
 
-## 交互式使用
+- Type messages and press Enter to send
+- Type 'exit' to close connection
+- Ctrl+C to force quit
 
-在交互式模式下：
-1. 使用 `>` 提示符输入命令
-2. 输入 `exit` 退出
-3. Ctrl+C 可以强制退出
+### Concurrent Client Support
 
-## 开发指南
+Both TCP and Unix socket servers support multiple simultaneous client connections. To demonstrate:
 
-### 消息格式
+1. Start the server (TCP or Unix socket)
+2. Run multiple clients simultaneously:
+```bash
+# Terminal 1
+python tcp_client.py file messages.txt
 
-所有消息都使用JSON格式，基本结构为：
-```json
-{
-    "type": "message",
-    "content": "消息内容",
-    "session_id": "会话ID"
-}
+# Terminal 2 
+python tcp_client.py file messages2.txt
+
+# Terminal 3 (optional)
+python tcp_client.py interactive
 ```
 
-消息类型包括：
-- message: 普通消息
-- heartbeat: 心跳包
-- session_init: 会话初始化
-- session_ack: 会话确认
+## Protocol Details
 
-### 扩展开发
+The message protocol includes:
+- 8-byte magic number
+- 2-byte version
+- 2-byte message type
+- Header length and CRC32
+- Content length and CRC32
+- HMAC-SHA256 authentication
+- JSON-encoded headers
+- Binary message content
 
-1. 继承基类创建新的客户端：
+## Integration Guide
+
+### Using in Your Project
+
+1. Core Module Integration:
 ```python
+from message import EnhancedMessageHandler, Message
+from base_server import BaseServer
 from base_client import BaseAsyncClient
+from session import BaseSession
+```
+
+2. Implement Custom Communication:
+```python
+class MyCustomServer(BaseServer):
+    async def process_message(self, session: ISession, message: Message) -> None:
+        # Custom business logic
+        response = process_business_logic(message.content)
+        await self.send_message(session, response)
 
 class MyCustomClient(BaseAsyncClient):
-    # 实现自定义功能
-    pass
+    async def start(self, message_source: str) -> None:
+        # Custom startup logic
+        await self.connect()
+        await self.custom_message_handling()
 ```
 
-2. 实现新的消息处理器：
-
+3. Message Protocol Usage:
 ```python
-
-from message import IMessageHandler
-
-
-class MyMessageHandler(IMessageHandler):
-   # 实现自定义消息处理
-   pass
+# Server-side message handling
+handler = EnhancedMessageHandler(hmac_key=b'your-secret-key')
+message = Message.from_dict({
+    'type': MessageType.MESSAGE,
+    'content': your_data,
+    'content_type': 'application/json'
+})
+encoded = handler.encode_message(message)
 ```
 
-## 注意事项
+4. Session Management:
+```python
+class CustomSession(BaseSession):
+    def __init__(self, session_id: str, writer: asyncio.StreamWriter):
+        super().__init__(session_id, writer)
+        self.add_extra_info('custom_data', {})
+        
+    async def custom_cleanup(self):
+        # Custom cleanup logic
+        await self.close()
+```
 
-1. Unix套接字功能仅在Unix/Linux/macOS系统上可用
-2. 确保有适当的文件系统权限创建Unix套接字
-3. 服务器异常退出可能需要手动清理Unix套接字文件
-4. 推荐在虚拟环境中安装依赖
+### Key Integration Points
 
-## 错误处理
+1. **Message Protocol**: Use `message.py` for robust message encoding/decoding
+2. **Session Management**: Extend `BaseSession` for custom session handling
+3. **Server Implementation**: Inherit `BaseServer` for custom server logic
+4. **Client Implementation**: Extend `BaseAsyncClient` for custom client behavior
 
-常见错误及解决方法：
+### Best Practices
 
-1. 端口被占用：
-   - 使用不同的端口号
-   - 检查并关闭占用端口的进程
+- Maintain heartbeat mechanisms for connection health
+- Handle session cleanup properly
+- Use the message protocol's security features (HMAC, CRC32)
+- Implement proper error handling and logging
+- Consider implementing retry mechanisms for critical operations
 
-2. Unix套接字文件已存在：
-   - 手动删除套接字文件
-   - 确认没有其他程序正在使用该套接字
+## Development
 
-3. 权限问题：
-   - 确保有创建和访问套接字文件的权限
-   - 检查目录权限设置
+### Project Structure
 
-## 调试建议
+```
+├── base_client.py     # Abstract client implementation
+├── base_server.py     # Abstract server implementation
+├── message.py         # Message protocol implementation
+├── session.py         # Session management
+├── tcp_client.py      # TCP client implementation
+├── tcp_server.py      # TCP server implementation
+├── unix_client.py     # Unix socket client
+└── unix_server.py     # Unix socket server
+```
 
-1. 启用详细日志：
-   - 所有关键操作都有日志输出
-   - 错误信息包含异常详情
+### Extending the System
 
-2. 使用文件模式测试：
-   - 创建测试命令文件
-   - 观察服务器端的响应
+1. Create custom session types:
+```python
+class CustomSession(BaseSession):
+    def __init__(self, session_id: str, writer: asyncio.StreamWriter):
+        super().__init__(session_id, writer)
+        # Add custom initialization
+```
 
-3. 心跳超时设置：
-   - 可以通过修改服务器的timeout参数调整
-   - 默认超时时间为10秒，最大重试3次
+2. Implement custom servers:
+```python
+class CustomServer(BaseServer):
+    async def process_message(self, session: ISession, message: Message) -> None:
+        # Custom message handling
+```
 
-## 许可证
+## License
 
-[Affero GNU License v3](LICENSE)
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0)
