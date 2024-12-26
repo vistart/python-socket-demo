@@ -145,12 +145,15 @@ class MyCustomClient(BaseAsyncClient):
 ```
 
 2. 实现新的消息处理器：
+
 ```python
-from tcp_interfaces import IMessageHandler
+
+from message import IMessageHandler
+
 
 class MyMessageHandler(IMessageHandler):
-    # 实现自定义消息处理
-    pass
+   # 实现自定义消息处理
+   pass
 ```
 
 ## 注意事项

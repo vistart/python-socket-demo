@@ -1,6 +1,5 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Dict, Any
 
 
 class ISession(ABC):
@@ -159,44 +158,3 @@ class IClient(ABC):
         pass
 
 
-class IMessageHandler(ABC):
-    """消息处理器接口,定义消息的编码解码和验证"""
-
-    @abstractmethod
-    def encode_message(self, message: Dict[str, Any]) -> bytes:
-        """将消息对象编码为字节串
-
-        Args:
-            message: 要编码的消息对象
-
-        Returns:
-            bytes: 编码后的字节串
-        """
-        pass
-
-    @abstractmethod
-    def decode_message(self, data: bytes) -> Dict[str, Any]:
-        """将字节串解码为消息对象
-
-        Args:
-            data: 要解码的字节串
-
-        Returns:
-            Dict[str, Any]: 解码后的消息对象
-
-        Raises:
-            ValueError: 解码失败时抛出
-        """
-        pass
-
-    @abstractmethod
-    def validate_message(self, message: Dict[str, Any]) -> bool:
-        """验证消息格式是否有效
-
-        Args:
-            message: 要验证的消息对象
-
-        Returns:
-            bool: 消息格式是否有效
-        """
-        pass

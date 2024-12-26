@@ -1,11 +1,16 @@
 import asyncio
+from abc import abstractmethod
 from typing import Optional
-from message import JSONMessageHandler
+from message import JSONMessageHandler, Message, MessageType, PresetMessages
 from tcp_interfaces import IClient
 
 
 class BaseAsyncClient(IClient):
     """异步客户端基类"""
+
+    @abstractmethod
+    async def connect(self) -> bool:
+        pass
 
     def __init__(self):
         self.running = False
@@ -17,6 +22,14 @@ class BaseAsyncClient(IClient):
 
     async def disconnect(self) -> None:
         """断开连接并清理资源"""
+        if self.connected and self.session_id:
+            try:
+                # 发送断开连接消息
+                disconnect_msg = PresetMessages.disconnect(self.session_id)
+                await self._send_message_internal(disconnect_msg)
+            except Exception:
+                pass  # 忽略断开连接时的发送错误
+
         self.running = False
         self.connected = False
         if self.writer:
@@ -32,31 +45,32 @@ class BaseAsyncClient(IClient):
             return
 
         try:
-            message = {
-                'type': 'message',
-                'content': content,
-                'session_id': self.session_id
-            }
-            data = self.message_handler.encode_message(message)
-            self.writer.write(data)
-            await self.writer.drain()
+            message = PresetMessages.user_message(content, self.session_id)
+            await self._send_message_internal(message)
             print(f"Sent: {content}")
         except Exception as e:
             print(f"Error sending message: {e}")
             self.running = False
 
+    async def _send_message_internal(self, message: Message) -> None:
+        """内部消息发送方法"""
+        if message.type != MessageType.SESSION_ACK and not self.connected or not self.writer:
+            return
+
+        try:
+            data = self.message_handler.encode_message(message)
+            self.writer.write(data)
+            await self.writer.drain()
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            raise
+
     async def send_heartbeat(self, interval: int = 5) -> None:
         """发送心跳包"""
         while self.running and self.connected and self.session_id:
             try:
-                message = {
-                    'type': 'heartbeat',
-                    'content': 'ping',
-                    'session_id': self.session_id
-                }
-                data = self.message_handler.encode_message(message)
-                self.writer.write(data)
-                await self.writer.drain()
+                message = PresetMessages.heartbeat_ping(self.session_id)
+                await self._send_message_internal(message)
                 await asyncio.sleep(interval)
             except Exception as e:
                 print(f"Error sending heartbeat: {e}")
@@ -72,15 +86,7 @@ class BaseAsyncClient(IClient):
                     break
 
                 message = self.message_handler.decode_message(data)
-                if not self.message_handler.validate_message(message):
-                    print("Invalid message format")
-                    continue
-
-                msg_type = message.get('type')
-                content = message.get('content')
-
-                if msg_type == 'message':
-                    print(f"Received: {content}")
+                await self._handle_message(message)
 
             except ValueError as e:
                 print(f"Error decoding message: {e}")
@@ -89,6 +95,17 @@ class BaseAsyncClient(IClient):
                 break
 
         self.running = False
+
+    async def _handle_message(self, message: Message) -> None:
+        """处理接收到的消息"""
+        if message.type == MessageType.MESSAGE:
+            print(f"Received: {message.content}")
+        elif message.type == MessageType.ERROR:
+            print(f"Error from server: {message.content}")
+            self.running = False
+        elif message.type == MessageType.DISCONNECT:
+            print("Server requested disconnect")
+            self.running = False
 
     async def _handle_handshake(self, init_data: bytes) -> bool:
         """处理握手过程
@@ -105,27 +122,31 @@ class BaseAsyncClient(IClient):
 
         try:
             init_message = self.message_handler.decode_message(init_data)
-            if (not self.message_handler.validate_message(init_message) or
-                    init_message.get('type') != 'session_init'):
+            if init_message.type != MessageType.SESSION_INIT:
                 print("Invalid session initialization from server")
                 return False
 
-            self.session_id = init_message.get('session_id')
+            self.session_id = init_message.session_id
             if not self.session_id:
                 print("No session ID received from server")
                 return False
 
             # 发送确认消息
-            ack_message = {
-                'type': 'session_ack',
-                'content': 'Session acknowledged',
-                'session_id': self.session_id
-            }
-            ack_data = self.message_handler.encode_message(ack_message)
-            self.writer.write(ack_data)
-            await self.writer.drain()
+            ack_message = PresetMessages.session_ack(self.session_id)
+            await self._send_message_internal(ack_message)
 
             return True
         except Exception as e:
             print(f"Error in handshake: {e}")
             return False
+
+    async def _cleanup(self) -> None:
+        """子类可以重写此方法以添加额外的清理操作"""
+        pass
+
+    async def start(self, message_source: str) -> None:
+        """启动客户端并处理消息
+
+        这是一个抽象方法，子类必须实现
+        """
+        raise NotImplementedError("Subclasses must implement start()")
