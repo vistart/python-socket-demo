@@ -4,7 +4,7 @@ import uuid
 from abc import abstractmethod
 from typing import Dict, Optional, Type
 
-from message import JSONMessageHandler, Message, MessageType, PresetMessages
+from message import EnhancedMessageHandler, Message, MessageType, PresetMessages
 from session import BaseSession
 from tcp_interfaces import IServer, ISession
 
@@ -19,7 +19,7 @@ class BaseServer(IServer):
     def __init__(self, session_cls: Type[BaseSession]):
         self.sessions: Dict[str, ISession] = {}
         self.running = True
-        self.message_handler = JSONMessageHandler()
+        self.message_handler = EnhancedMessageHandler()
         self.session_cls = session_cls
 
     async def stop(self) -> None:
@@ -114,7 +114,7 @@ class BaseServer(IServer):
         elif message.type == MessageType.MESSAGE:
             print(f"Received from {session}: {message.content}")
             response = PresetMessages.user_message(
-                f"Server received: {message.content}",
+                f"Server received: {message.content}".encode(),
                 session.session_id
             )
             await self.send_message(session, response)

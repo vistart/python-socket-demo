@@ -9,49 +9,6 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 
-class IMessageHandler(ABC):
-    """消息处理器接口,定义消息的编码解码和验证"""
-
-    @abstractmethod
-    def encode_message(self, message: Dict[str, Any]) -> bytes:
-        """将消息对象编码为字节串
-
-        Args:
-            message: 要编码的消息对象
-
-        Returns:
-            bytes: 编码后的字节串
-        """
-        pass
-
-    @abstractmethod
-    def decode_message(self, data: bytes) -> Dict[str, Any]:
-        """将字节串解码为消息对象
-
-        Args:
-            data: 要解码的字节串
-
-        Returns:
-            Dict[str, Any]: 解码后的消息对象
-
-        Raises:
-            ValueError: 解码失败时抛出
-        """
-        pass
-
-    @abstractmethod
-    def validate_message(self, message: Dict[str, Any]) -> bool:
-        """验证消息格式是否有效
-
-        Args:
-            message: 要验证的消息对象
-
-        Returns:
-            bool: 消息格式是否有效
-        """
-        pass
-
-
 class MessageType(Enum):
     """消息类型枚举"""
     SESSION_INIT = "session_init"
@@ -65,28 +22,77 @@ class MessageType(Enum):
 @dataclass
 class Message:
     """预定义消息结构"""
-    type: MessageType
-    content: str
+    type: str
+    content: bytes
     session_id: Optional[str] = None
+    content_type: Optional[str] = "application/octet-stream"
 
     def to_dict(self) -> dict:
         """转换为字典格式"""
         return {
-            "type": self.type.value,
+            "type": MessageType(self.type),
             "content": self.content,
-            "session_id": self.session_id
+            "session_id": self.session_id,
+            "content_type": self.content_type,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Message':
         """从字典创建消息对象"""
         try:
-            msg_type = MessageType(data.get("type"))
-            content = data.get("content", "")
+            msg_type = MessageType(data.get("type")).value
+            content = data.get("content")
             session_id = data.get("session_id")
-            return cls(msg_type, content, session_id)
+            content_type = data.get("content_type", "application/octet-stream")
+            return cls(msg_type, content, session_id, content_type)
         except (ValueError, KeyError) as e:
             raise ValueError(f"Invalid message format: {e}")
+
+    def validate(self) -> bool:
+        return self.content and isinstance(self.content, bytes) and len(self.content) > 0 and self.content_type
+
+
+class IMessageHandler(ABC):
+    """消息处理器接口,定义消息的编码解码和验证"""
+
+    @abstractmethod
+    def encode_message(self, message: Message) -> bytes:
+        """将消息对象编码为字节串
+
+        Args:
+            message: 要编码的消息对象
+
+        Returns:
+            bytes: 编码后的字节串
+        """
+        pass
+
+    @abstractmethod
+    def decode_message(self, data: bytes) -> Message:
+        """将字节串解码为消息对象
+
+        Args:
+            data: 要解码的字节串
+
+        Returns:
+            Message: 解码后的消息对象
+
+        Raises:
+            ValueError: 解码失败时抛出
+        """
+        pass
+
+    @abstractmethod
+    def validate_message(self, message: Message) -> bool:
+        """验证消息格式是否有效
+
+        Args:
+            message: 要验证的消息对象
+
+        Returns:
+            bool: 消息格式是否有效
+        """
+        pass
 
 
 class PresetMessages:
@@ -95,60 +101,62 @@ class PresetMessages:
     @staticmethod
     def session_init(session_id: str) -> Message:
         return Message(
-            MessageType.SESSION_INIT,
-            "Session established",
+            MessageType.SESSION_INIT.value,
+            "Session established".encode(),
             session_id
         )
 
     @staticmethod
     def session_ack(session_id: str) -> Message:
         return Message(
-            MessageType.SESSION_ACK,
-            "Session acknowledged",
+            MessageType.SESSION_ACK.value,
+            "Session acknowledged".encode(),
             session_id
         )
 
     @staticmethod
     def heartbeat_ping(session_id: str) -> Message:
         return Message(
-            MessageType.HEARTBEAT,
-            "ping",
+            MessageType.HEARTBEAT.value,
+            "ping".encode(),
             session_id
         )
 
     @staticmethod
     def heartbeat_pong(session_id: str) -> Message:
         return Message(
-            MessageType.HEARTBEAT,
-            "pong",
+            MessageType.HEARTBEAT.value,
+            "pong".encode(),
             session_id
         )
 
     @staticmethod
     def error(content: str, session_id: Optional[str] = None) -> Message:
         return Message(
-            MessageType.ERROR,
-            content,
+            MessageType.ERROR.value,
+            content.encode(),
             session_id
         )
 
     @staticmethod
     def disconnect(session_id: str) -> Message:
         return Message(
-            MessageType.DISCONNECT,
-            "Client disconnecting",
+            MessageType.DISCONNECT.value,
+            "Client disconnecting".encode(),
             session_id
         )
 
     @staticmethod
-    def user_message(content: str, session_id: str) -> Message:
+    def user_message(content: bytes, session_id: str, content_type: Optional[str] = 'application/octet-stream') -> Message:
         return Message(
-            MessageType.MESSAGE,
+            MessageType.MESSAGE.value,
             content,
-            session_id
+            session_id,
+            content_type
         )
 
 
+@dataclass
 class MessageEnvelope:
     """消息封装，处理消息的打包和解包"""
     # 使用更复杂的魔数序列，减少冲突可能性
@@ -170,7 +178,12 @@ class MessageEnvelope:
     HEADER_FORMAT = '!8sHHIIQI32s'
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
-    def __init__(self, msg_type: str, content: bytes, content_type: str, hmac_key: bytes):
+    msg_type: MessageType = MessageType.SESSION_INIT
+    content: bytes = b""
+    session_id: Optional[str] = None
+    content_type: Optional[str] = "application/octet-stream"
+
+    def __init__(self, message: Message, hmac_key: bytes):
         """初始化消息封装
 
         Args:
@@ -179,13 +192,17 @@ class MessageEnvelope:
             content_type: 内容类型
             hmac_key: HMAC密钥
         """
-        self.msg_type = msg_type
-        self.content = content
-        self.content_type = content_type
+        if not message.validate():
+            raise ValueError(f"Invalid message format: {message}")
+        self.msg_type = MessageType(message.type)
+        self.content = message.content
+        self.content_type = message.content_type
+        self.session_id = message.session_id
         self._hmac_key = hmac_key
         self._header = {
-            'type': msg_type,
-            'content_type': content_type
+            'type': message.type,
+            'content_type': message.content_type,
+            'session_id': message.session_id
         }
 
     @property
@@ -279,12 +296,10 @@ class MessageEnvelope:
         # 解析header
         header = json.loads(header_json.decode('utf-8'))
 
-        return cls(
-            msg_type=header['type'],
-            content=content,
-            content_type=header['content_type'],
-            hmac_key=hmac_key
-        )
+        return cls(Message(header.get('type'), content, header.get('session_id'), header.get('content_type')),hmac_key)
+
+    def to_message(self) -> Message:
+        return Message(self.msg_type, self.content, self.session_id, self.content_type)
 
 
 class EnhancedMessageHandler(IMessageHandler):
@@ -298,7 +313,7 @@ class EnhancedMessageHandler(IMessageHandler):
         """
         self._hmac_key = hmac_key
 
-    def validate_message(self, message: Dict[str, Any]) -> bool:
+    def validate_message(self, message: Message) -> bool:
         """验证消息格式是否有效
 
         Args:
@@ -307,27 +322,9 @@ class EnhancedMessageHandler(IMessageHandler):
         Returns:
             bool: 消息格式是否有效
         """
-        if not isinstance(message, dict):
-            return False
+        return message and message.validate()
 
-        # 验证必需字段存在
-        if not all(key in message for key in ['type', 'content', 'content_type']):
-            return False
-
-        # 验证字段类型
-        if not isinstance(message['type'], str):
-            return False
-
-        if not isinstance(message['content_type'], str):
-            return False
-
-        content = message['content']
-        if not isinstance(content, (str, bytes)):
-            return False
-
-        return True
-
-    def encode_message(self, message: Dict[str, Any]) -> bytes:
+    def encode_message(self, message: Message) -> bytes:
         """将消息对象编码为字节串
 
         Args:
@@ -339,22 +336,10 @@ class EnhancedMessageHandler(IMessageHandler):
         Raises:
             ValueError: 当消息格式无效时抛出
         """
-        if not self.validate_message(message):
-            raise ValueError("Invalid message format")
-
-        content = message['content']
-        if isinstance(content, str):
-            content = content.encode('utf-8')
-
-        envelope = MessageEnvelope(
-            msg_type=message['type'],
-            content=content,
-            content_type=message['content_type'],
-            hmac_key=self._hmac_key
-        )
+        envelope = MessageEnvelope(message, self._hmac_key)
         return envelope.pack()
 
-    def decode_message(self, data: bytes) -> Dict[str, Any]:
+    def decode_message(self, data: bytes) -> Message:
         """将字节串解码为消息对象
 
         Args:
@@ -366,22 +351,7 @@ class EnhancedMessageHandler(IMessageHandler):
         Raises:
             ValueError: 解码失败时抛出
         """
-        envelope = MessageEnvelope.unpack(data, self._hmac_key)
-
-        content = envelope.content
-        if envelope.content_type == 'text/plain':
-            content = content.decode('utf-8')
-
-        message = {
-            'type': envelope.msg_type,
-            'content': content,
-            'content_type': envelope.content_type
-        }
-
-        if not self.validate_message(message):
-            raise ValueError("Decoded message validation failed")
-
-        return message
+        return MessageEnvelope.unpack(data, self._hmac_key).to_message()
 
 
 def test_message_handler():
@@ -390,11 +360,11 @@ def test_message_handler():
 
     # 1. 处理文本消息
     print("\n=== 测试文本消息 ===")
-    text_message = {
-        'type': 'greeting',
-        'content': 'Hello, World!',
+    text_message = Message.from_dict({
+        'type': MessageType.MESSAGE,
+        'content': 'Hello, World!'.encode(),
         'content_type': 'text/plain'
-    }
+    })
 
     # 验证消息格式
     print(f"验证文本消息格式: {handler.validate_message(text_message)}")
@@ -409,11 +379,11 @@ def test_message_handler():
 
     # 2. 处理二进制消息
     print("\n=== 测试二进制消息 ===")
-    binary_message = {
-        'type': 'image',
+    binary_message = Message.from_dict({
+        'type': MessageType.MESSAGE,
         'content': bytes([0xFF, 0xD8, 0xFF, 0xE0] + [0] * 12),  # 模拟 JPEG 头部
         'content_type': 'image/jpeg'
-    }
+    })
 
     # 验证消息格式
     print(f"验证二进制消息格式: {handler.validate_message(binary_message)}")
@@ -424,30 +394,30 @@ def test_message_handler():
 
     # 解码消息
     decoded_binary = handler.decode_message(encoded_binary)
-    print(f"解码后的消息类型: {decoded_binary['content_type']}")
-    print(f"解码后的内容长度: {len(decoded_binary['content'])} 字节")
+    print(f"解码后的消息类型: {decoded_binary.content_type}")
+    print(f"解码后的内容长度: {len(decoded_binary.content)} 字节")
 
     # 3. 错误处理示例
     print("\n=== 测试错误处理 ===")
 
     # 3.1 无效的消息格式
     try:
-        invalid_message = {
-            'type': 'test',
+        invalid_message = Message.from_dict({
+            'type': MessageType.MESSAGE,
             # 缺少必需的 content 字段
             'content_type': 'text/plain'
-        }
+        })
         handler.encode_message(invalid_message)
     except ValueError as e:
         print(f"预期的格式错误被捕获: {e}")
 
     # 3.2 无效的消息内容类型
     try:
-        invalid_type_message = {
-            'type': 'test',
+        invalid_type_message = Message.from_dict({
+            'type': MessageType.MESSAGE,
             'content': 123,  # 数字不是有效的内容类型
             'content_type': 'text/plain'
-        }
+        })
         handler.encode_message(invalid_type_message)
     except ValueError as e:
         print(f"预期的类型错误被捕获: {e}")

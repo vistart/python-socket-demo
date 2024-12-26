@@ -1,7 +1,7 @@
 import asyncio
 from abc import abstractmethod
 from typing import Optional
-from message import JSONMessageHandler, Message, MessageType, PresetMessages
+from message import EnhancedMessageHandler, Message, MessageType, PresetMessages
 from tcp_interfaces import IClient
 
 
@@ -18,7 +18,7 @@ class BaseAsyncClient(IClient):
         self.session_id: Optional[str] = None
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
-        self.message_handler = JSONMessageHandler()
+        self.message_handler = EnhancedMessageHandler()
 
     async def disconnect(self) -> None:
         """断开连接并清理资源"""
@@ -45,7 +45,7 @@ class BaseAsyncClient(IClient):
             return
 
         try:
-            message = PresetMessages.user_message(content, self.session_id)
+            message = PresetMessages.user_message(content.encode(), self.session_id)
             await self._send_message_internal(message)
             print(f"Sent: {content}")
         except Exception as e:
@@ -54,7 +54,7 @@ class BaseAsyncClient(IClient):
 
     async def _send_message_internal(self, message: Message) -> None:
         """内部消息发送方法"""
-        if message.type != MessageType.SESSION_ACK and not self.connected or not self.writer:
+        if message.type != MessageType.SESSION_ACK.value and not self.connected or not self.writer:
             return
 
         try:
