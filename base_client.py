@@ -92,52 +92,52 @@ class BaseAsyncClient(IClient):
             raise
 
     async def _receive_complete_message(self) -> bytes:
-        """接收完整的消息"""
+        """接收完整的消息,采用按需读取策略
+
+        Returns:
+            bytes: 完整的消息数据
+        """
         if not self.reader:
             return b''
 
         try:
-            # 1. 首先读取固定大小的头部
-            header_data = await self._read_exactly(MessageEnvelope.HEADER_SIZE)
-            if not header_data:
-                print("No header data received")
+            # 1. 先读取一个缓冲区的数据
+            initial_data = await self.reader.read(1024)
+            if len(initial_data) < MessageEnvelope.HEADER_SIZE:
+                print("Incomplete header received")
                 return b''
 
-            # print(f"Received header magic: {header_data[:8].hex()}")
-
-            # 2. 解析头部以获取后续数据的长度
-            try:
-                (magic, version, msg_type, header_len, header_crc,
-                 content_len, content_crc, hmac_digest) = struct.unpack(
-                    MessageEnvelope.HEADER_FORMAT,
-                    header_data
-                )
-            except struct.error as e:
-                print(f"Failed to unpack header: {e}")
-                return b''
+            # 2. 从initial_data中解析头部信息
+            header_data = initial_data[:MessageEnvelope.HEADER_SIZE]
+            (magic, version, msg_type, header_len, header_crc,
+             content_len, content_crc, hmac_digest) = struct.unpack(
+                MessageEnvelope.HEADER_FORMAT,
+                header_data
+            )
 
             # 3. 验证魔数
             if magic != MessageEnvelope.MAGIC:
-                print(f"Invalid magic number in header: expected {MessageEnvelope.MAGIC.hex()}, got {magic.hex()}")
+                print(f"Invalid magic number in header")
                 return b''
 
-            # print(f"Header decoded: header_len={header_len}, content_len={content_len}")
+            # 4. 计算需要读取的总长度
+            total_needed = MessageEnvelope.HEADER_SIZE + header_len + content_len
+            data = bytearray(initial_data)
 
-            # 4. 读取消息头和消息体
-            remaining_len = header_len + content_len
-            # print(f"Reading remaining {remaining_len} bytes...")
+            # 5. 如果initial_data不足,继续读取剩余数据
+            remaining = total_needed - len(initial_data)
+            while remaining > 0:
+                chunk = await self.reader.read(min(remaining, 1024))
+                if not chunk:  # EOF
+                    return b''
+                data.extend(chunk)
+                remaining = total_needed - len(data)
 
-            remaining_data = await self._read_exactly(remaining_len)
-            if not remaining_data or len(remaining_data) != remaining_len:
-                print(
-                    f"Failed to read complete message: got {len(remaining_data) if remaining_data else 0} bytes, expected {remaining_len}")
-                return b''
+            return bytes(data)
 
-            # 5. 组装完整消息
-            complete_message = header_data + remaining_data
-            # print(f"Complete message assembled: {len(complete_message)} bytes")
-            return complete_message
-
+        except asyncio.IncompleteReadError:
+            print("Connection closed by server")
+            return b''
         except Exception as e:
             print(f"Error in _receive_complete_message: {e}")
             return b''

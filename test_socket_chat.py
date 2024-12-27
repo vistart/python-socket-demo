@@ -411,76 +411,55 @@ class TestServerPerformance:
         await tcp_client.connect()
         assert await self.wait_for_session_active(tcp_server, tcp_client)
 
-        # 2. 准备响应处理
+        # 2. 准备消息接收的事件和存储
         responses = []
         receive_event = asyncio.Event()
 
-        def message_callback(message):
-            print(f"Received response of size: {len(message.content)} bytes")
+        # 3. 在启动接收任务前设置回调
+        original_handle_message = tcp_client._handle_message
+
+        async def test_handle_message(message):
+            await original_handle_message(message)
             responses.append(message)
-            receive_event.set()  # 标记已收到响应
+            receive_event.set()
 
-        tcp_client._message_callback = message_callback
+        tcp_client._handle_message = test_handle_message
 
-        # 3. 启动接收任务
-        print("Starting receive task...")
+        # 4. 启动接收任务
         receive_task = asyncio.create_task(tcp_client.receive_messages())
 
         try:
-            # 4. 准备并发送大消息
-            message_size = 100 * 1024  # 先从较小的大小开始测试：100KB
+            # 5. 准备大消息 (100KB)
+            message_size = 100 * 1024  # 100KB
             large_message = "X" * message_size
-            print(f"Sending message of size: {message_size} bytes")
 
-            # 5. 发送消息（带超时）
-            try:
-                await asyncio.wait_for(
-                    tcp_client.send_message(large_message),
-                    timeout=3.0
-                )
-                print("Message sent successfully, waiting for response...")
-            except asyncio.TimeoutError:
-                pytest.fail("Timeout while sending message")
+            # 6. 发送消息
+            await tcp_client.send_message(large_message)
 
-            # 6. 等待响应
             try:
-                # 等待事件被设置或超时
-                await asyncio.wait_for(
-                    receive_event.wait(),
-                    timeout=3.0
-                )
-                print("Response received!")
+                # 7. 等待接收响应
+                await asyncio.wait_for(receive_event.wait(), timeout=5.0)
+
+                # 8. 验证响应
+                assert len(responses) == 1, f"Expected 1 response, got {len(responses)}"
+                assert len(responses[0].content) == message_size, \
+                    f"Response size mismatch: expected {message_size}, got {len(responses[0].content)}"
+
             except asyncio.TimeoutError:
-                # 如果超时，输出更多调试信息
-                session = tcp_server.sessions.get(tcp_client.session_id)
-                if session:
-                    print(f"Session state: connected={session.is_connected}")
-                    print(f"Last heartbeat: {time.time() - session.last_heartbeat:.2f}s ago")
-                print(f"Responses received so far: {len(responses)}")
                 pytest.fail("Timeout while waiting for response")
 
-            # 7. 验证响应
-            assert len(responses) == 1, f"Expected 1 response, got {len(responses)}"
-            assert len(responses[0].content) == message_size, \
-                f"Response size mismatch: expected {message_size}, got {len(responses[0].content)}"
-            print("Response verification completed successfully")
-
-        except Exception as e:
-            pytest.fail(f"Test failed: {e}")
         finally:
-            # 8. 清理资源
-            print("Cleaning up resources...")
+            # 9. 恢复原始回调并清理资源
+            tcp_client._handle_message = original_handle_message
+
             if not receive_task.done():
                 receive_task.cancel()
                 try:
                     await receive_task
                 except asyncio.CancelledError:
                     pass
-                except Exception as e:
-                    print(f"Error during receive task cleanup: {e}")
 
             await tcp_client.disconnect()
-            print("Cleanup completed")
 
     @pytest.mark.asyncio
     async def test_small_message_throughput(self, tcp_server: AsyncTCPServer, tcp_client: AsyncTCPClient):

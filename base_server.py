@@ -113,50 +113,52 @@ class BaseServer(IServer):
             return None
 
     async def _read_complete_message(self, reader: asyncio.StreamReader) -> Optional[bytes]:
-        """读取完整的消息，处理大消息分片"""
+        """读取完整的消息,采用按需读取策略
+
+        Args:
+            reader: StreamReader对象
+
+        Returns:
+            Optional[bytes]: 完整的消息数据,如果出错则返回None
+        """
         try:
-            # 1. 首先读取固定大小的头部，设置超时
-            header_data = await asyncio.wait_for(
-                self._read_exactly(reader, MessageEnvelope.HEADER_SIZE),
-                timeout=10.0  # 10秒超时
+            # 1. 先读取固定大小的头部(先读一个缓冲区)
+            initial_data = await reader.read(1024)
+            if len(initial_data) < MessageEnvelope.HEADER_SIZE:
+                print("Incomplete header received")
+                return None
+
+            # 2. 从initial_data中解析头部信息
+            header_data = initial_data[:MessageEnvelope.HEADER_SIZE]
+            (magic, version, msg_type, header_len, header_crc,
+             content_len, content_crc, hmac_digest) = struct.unpack(
+                MessageEnvelope.HEADER_FORMAT,
+                header_data
             )
-            if not header_data:
-                return None
 
-            # 2. 解析头部以获取后续数据的长度
-            try:
-                (magic, version, msg_type, header_len, header_crc,
-                 content_len, content_crc, hmac_digest) = struct.unpack(
-                    MessageEnvelope.HEADER_FORMAT,
-                    header_data
-                )
-            except struct.error as e:
-                print(f"Failed to unpack header: {e}")
-                return None
-
-            # 3. 验证魔数和大小限制
+            # 3. 验证魔数
             if magic != MessageEnvelope.MAGIC:
                 print(f"Invalid magic number")
                 return None
 
-            if header_len > MessageEnvelope.MAX_HEADER_SIZE or content_len > MessageEnvelope.MAX_CONTENT_SIZE:
-                print(f"Message size exceeds limits: header_len={header_len}, content_len={content_len}")
-                return None
+            # 4. 计算需要读取的总长度
+            total_needed = MessageEnvelope.HEADER_SIZE + header_len + content_len
+            data = bytearray(initial_data)
 
-            # 4. 读取消息头和消息体，设置超时
-            remaining_len = header_len + content_len
-            remaining_data = await asyncio.wait_for(
-                self._read_exactly(reader, remaining_len),
-                timeout=30.0  # 30秒超时，可以根据消息大小动态调整
-            )
-            if not remaining_data:
-                return None
+            # 5. 如果initial_data不足,继续读取剩余数据
+            remaining = total_needed - len(initial_data)
+            while remaining > 0:
+                chunk = await reader.read(min(remaining, 1024))
+                print(f"remaining: {remaining}")
+                if not chunk:  # EOF
+                    return None
+                data.extend(chunk)
+                remaining = total_needed - len(data)
 
-            # 5. 组装完整消息
-            return header_data + remaining_data
+            return bytes(data)
 
-        except asyncio.TimeoutError:
-            print("Timeout while reading message")
+        except asyncio.IncompleteReadError:
+            print("Connection closed while reading")
             return None
         except Exception as e:
             print(f"Error in _read_complete_message: {e}")
