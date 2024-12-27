@@ -101,6 +101,42 @@ python tcp_client.py file messages2.txt
 python tcp_client.py interactive
 ```
 
+### Diagram
+
+```mermaid
+sequenceDiagram
+    participant S as Server
+    participant C as Client
+    
+    Note over S: Server starts and listens
+    
+    Note over S,C: Connection Phase
+    C->>S: TCP/Unix Socket Connect
+    S->>C: SESSION_INIT
+    C->>S: SESSION_ACK
+    Note over S,C: Connection Established
+    
+    Note over S,C: Normal Communication Phase
+    C->>S: MESSAGE (user_message)
+    S->>C: MESSAGE (user_message)
+    
+    par Heartbeat Loop
+        loop Every 5 seconds
+            S->>C: HEARTBEAT (ping)
+            C->>S: HEARTBEAT (pong)
+        end
+    and Message Exchange
+        Note over C: Client continues sending messages
+        C->>S: MESSAGE (user_message)
+        S->>C: MESSAGE (user_message)
+    end
+    
+    Note over S,C: Disconnection Phase
+    C->>S: DISCONNECT
+    Note over S: Server cleans up session
+    Note over C: Client closes connection
+```
+
 ## Protocol Details
 
 The message protocol includes:

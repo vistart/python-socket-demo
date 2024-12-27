@@ -1,17 +1,17 @@
+import pytest
 import asyncio
 import os
 import socket
 import tempfile
 import time
-
-import pytest
+from typing import Generator, Tuple
 import pytest_asyncio
 
-from message import Message, MessageType
+from tcp_server import AsyncTCPServer, TCPSession
+from unix_server import AsyncUnixServer, UnixSession
 from tcp_client import AsyncTCPClient
-from tcp_server import AsyncTCPServer
 from unix_client import AsyncUnixClient
-from unix_server import AsyncUnixServer
+from message import Message, MessageType
 
 
 # Helper functions
@@ -38,8 +38,42 @@ def event_loop():
     loop.close()
 
 
-class BaseTestServer:
-    """Base class for server test fixtures"""
+# Base test configuration mixins
+class TCPTestConfig:
+    """TCP server/client configuration"""
+
+    @pytest.fixture(autouse=True)
+    def tcp_config(self):
+        """Configure TCP test parameters"""
+        self.port = find_free_port()
+        self.host = 'localhost'
+        self.server_class = AsyncTCPServer
+        self.server_args = (self.host, self.port)
+        self.client_class = AsyncTCPClient
+        self.client_args = (self.host, self.port)
+
+
+class UnixTestConfig:
+    """Unix socket server/client configuration"""
+
+    @pytest.fixture(autouse=True)
+    def unix_config(self):
+        """Configure Unix socket test parameters"""
+        self.socket_path = get_temp_socket_path()
+        self.server_class = AsyncUnixServer
+        self.server_args = (self.socket_path,)
+        self.client_class = AsyncUnixClient
+        self.client_args = (self.socket_path,)
+        yield
+        # Cleanup socket file
+        try:
+            os.unlink(self.socket_path)
+        except FileNotFoundError:
+            pass
+
+
+class ServerClientFixtures:
+    """Common server and client fixtures"""
 
     @pytest_asyncio.fixture
     async def server(self):
@@ -59,42 +93,32 @@ class BaseTestServer:
         await client.disconnect()
 
 
-class TestTCPServer(BaseTestServer):
-    """TCP server test configuration"""
+# Enhanced server for testing
+class EnhancedServer(AsyncTCPServer):
+    """Server with custom message processing for testing"""
 
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Setup TCP test parameters"""
-        self.port = find_free_port()
-        self.host = 'localhost'
-        self.server_class = AsyncTCPServer
-        self.server_args = (self.host, self.port)
-        self.client_class = AsyncTCPClient
-        self.client_args = (self.host, self.port)
+    async def process_message(self, session, message):
+        if message.type == MessageType.MESSAGE.value:
+            # Echo message with count
+            if not hasattr(session, 'message_count'):
+                session.add_extra_info('message_count', 0)
+            count = session.get_extra_info('message_count') + 1
+            session.add_extra_info('message_count', count)
 
-
-class TestUnixServer(BaseTestServer):
-    """Unix socket server test configuration"""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Setup Unix socket test parameters"""
-        self.socket_path = get_temp_socket_path()
-        self.server_class = AsyncUnixServer
-        self.server_args = (self.socket_path,)
-        self.client_class = AsyncUnixClient
-        self.client_args = (self.socket_path,)
-
-    def teardown(self):
-        """Cleanup Unix socket file"""
-        try:
-            os.unlink(self.socket_path)
-        except FileNotFoundError:
-            pass
+            response_content = f"Echo #{count}: {message.content.decode()}"
+            response = Message(
+                MessageType.MESSAGE.value,
+                response_content.encode(),
+                session.session_id,
+                'text/plain'
+            )
+            await self.send_message(session, response)
+        else:
+            await super().process_message(session, message)
 
 
-# Test classes
-class BaseServerTests:
+# Test cases
+class TestBasicServerMixin:
     """Common test cases for both TCP and Unix servers"""
 
     @pytest.mark.asyncio
@@ -136,64 +160,8 @@ class BaseServerTests:
         await client.disconnect()
 
 
-class TestTCPServerImpl(TestTCPServer, BaseServerTests):
-    """TCP server specific tests"""
-    pass
-
-
-class TestUnixServerImpl(TestUnixServer, BaseServerTests):
-    """Unix socket server specific tests"""
-    pass
-
-
-# Enhanced Server with Custom Message Processing
-class EnhancedServer(AsyncTCPServer):
-    """Server with custom message processing for testing"""
-
-    async def process_message(self, session, message):
-        if message.type == MessageType.MESSAGE.value:
-            # Echo message with count
-            if not hasattr(session, 'message_count'):
-                session.add_extra_info('message_count', 0)
-            count = session.get_extra_info('message_count') + 1
-            session.add_extra_info('message_count', count)
-
-            response_content = f"Echo #{count}: {message.content.decode()}"
-            response = Message(
-                MessageType.MESSAGE.value,
-                response_content.encode(),
-                session.session_id,
-                'text/plain'
-            )
-            await self.send_message(session, response)
-        else:
-            await super().process_message(session, message)
-
-
-class TestEnhancedServer(TestTCPServer):
-    """Test cases for enhanced server functionality"""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Setup enhanced server test parameters"""
-        super().setup()
-        self.server_class = EnhancedServer
-
-    @pytest.mark.asyncio
-    async def test_enhanced_message_processing(self, server, client):
-        """Test enhanced message processing with message counting"""
-        assert await client.connect()
-        messages = ["First", "Second", "Third"]
-        for msg in messages:
-            await client.send_message(msg)
-            await asyncio.sleep(0.1)
-        await client.disconnect()
-
-
-# Benchmark Tests
-@pytest.mark.benchmark
-class BenchmarkTests:
-    """Performance benchmark tests"""
+class TestBenchmarkMixin:
+    """Common benchmark tests"""
 
     async def run_concurrent_clients(self, num_clients, messages_per_client):
         """Helper to run multiple clients concurrently"""
@@ -217,6 +185,7 @@ class BenchmarkTests:
             await client.disconnect()
 
     @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_concurrent_clients(self, server):
         """Benchmark concurrent client connections"""
         start_time = time.time()
@@ -225,6 +194,7 @@ class BenchmarkTests:
         print(f"\nConcurrent clients benchmark: {duration:.2f} seconds")
 
     @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_large_message_throughput(self, server):
         """Benchmark large message throughput"""
         client = self.client_class(*self.client_args)
@@ -241,6 +211,7 @@ class BenchmarkTests:
         print(f"\nLarge message throughput: {duration:.2f} seconds")
 
     @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_small_message_throughput(self, server):
         """Benchmark small message throughput"""
         client = self.client_class(*self.client_args)
@@ -257,11 +228,41 @@ class BenchmarkTests:
         print(f"\nSmall message throughput: {duration:.2f} seconds")
 
 
-class TestTCPBenchmark(TestTCPServer, BenchmarkTests):
-    """TCP specific benchmarks"""
+# Concrete test classes
+class TestTCPServer(TCPTestConfig, ServerClientFixtures, TestBasicServerMixin):
+    """TCP server test implementation"""
     pass
 
 
-class TestUnixBenchmark(TestUnixServer, BenchmarkTests):
-    """Unix socket specific benchmarks"""
+class TestUnixServer(UnixTestConfig, ServerClientFixtures, TestBasicServerMixin):
+    """Unix server test implementation"""
+    pass
+
+
+class TestEnhancedTCPServer(TCPTestConfig, ServerClientFixtures):
+    """Test cases for enhanced TCP server functionality"""
+
+    @pytest.fixture(autouse=True)
+    def enhanced_config(self, tcp_config):
+        """Override server class with enhanced version"""
+        self.server_class = EnhancedServer
+
+    @pytest.mark.asyncio
+    async def test_enhanced_message_processing(self, server, client):
+        """Test enhanced message processing with message counting"""
+        assert await client.connect()
+        messages = ["First", "Second", "Third"]
+        for msg in messages:
+            await client.send_message(msg)
+            await asyncio.sleep(0.1)
+        await client.disconnect()
+
+
+class TestTCPBenchmark(TCPTestConfig, ServerClientFixtures, TestBenchmarkMixin):
+    """TCP benchmark implementation"""
+    pass
+
+
+class TestUnixBenchmark(UnixTestConfig, ServerClientFixtures, TestBenchmarkMixin):
+    """Unix benchmark implementation"""
     pass
