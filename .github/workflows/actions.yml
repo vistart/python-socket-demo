@@ -52,7 +52,6 @@ jobs:
           coverage report  # 在终端显示覆盖率报告
         else
           python -m pytest test_socket_chat.py -v
-          python -m pytest test_socket_chat.py -v -m benchmark
         fi
 
     - name: Upload coverage to Codecov
