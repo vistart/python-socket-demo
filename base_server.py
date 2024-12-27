@@ -6,7 +6,7 @@ from typing import Dict, Optional, Type
 
 from message import EnhancedMessageHandler, Message, MessageType, PresetMessages
 from session import BaseSession
-from tcp_interfaces import IServer, ISession
+from interfaces import IServer, ISession
 
 
 class BaseServer(IServer):

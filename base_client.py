@@ -2,7 +2,7 @@ import asyncio
 from abc import abstractmethod
 from typing import Optional
 from message import EnhancedMessageHandler, Message, MessageType, PresetMessages
-from tcp_interfaces import IClient
+from interfaces import IClient
 
 
 class BaseAsyncClient(IClient):

@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from tcp_interfaces import ISession
+from interfaces import ISession
 
 
 class BaseSession(ISession):
