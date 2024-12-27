@@ -6,6 +6,10 @@ class ISession(ABC):
     """会话接口,定义单个客户端连接的会话管理功能"""
 
     @property
+    def extra_info(self):
+        pass
+
+    @property
     @abstractmethod
     def session_id(self) -> str:
         """获取会话唯一标识符
@@ -43,6 +47,12 @@ class ISession(ABC):
     @abstractmethod
     async def close(self) -> None:
         """关闭并清理会话"""
+        pass
+
+    def get_extra_info(self, param, param1):
+        pass
+
+    def add_extra_info(self, param, param1):
         pass
 
 

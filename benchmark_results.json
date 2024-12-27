@@ -1,0 +1,559 @@
+{
+    "machine_info": {
+        "node": "vistarts-MacBook-Pro-M3.local",
+        "processor": "arm",
+        "machine": "arm64",
+        "python_compiler": "Clang 16.0.0 (clang-1600.0.26.6)",
+        "python_implementation": "CPython",
+        "python_implementation_version": "3.9.6",
+        "python_version": "3.9.6",
+        "python_build": [
+            "default",
+            "Nov 11 2024 03:15:38"
+        ],
+        "release": "24.2.0",
+        "system": "Darwin",
+        "cpu": {
+            "python_version": "3.9.6.final.0 (64 bit)",
+            "cpuinfo_version": [
+                9,
+                0,
+                0
+            ],
+            "cpuinfo_version_string": "9.0.0",
+            "arch": "ARM_8",
+            "bits": 64,
+            "count": 8,
+            "arch_string_raw": "arm64",
+            "brand_raw": "Apple M3"
+        }
+    },
+    "commit_info": {
+        "id": "d3fe2e992c672d349a637bb94ed009063ad129a8",
+        "time": "2024-12-27T18:35:40+08:00",
+        "author_time": "2024-12-27T18:35:40+08:00",
+        "dirty": true,
+        "project": "python-socket-demo",
+        "branch": "main"
+    },
+    "benchmarks": [
+        {
+            "group": null,
+            "name": "test_large_message_throughput[tcp]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_large_message_throughput[tcp]",
+            "params": {
+                "server_client_pair": "tcp"
+            },
+            "param": "tcp",
+            "extra_info": {
+                "connection_type": "TCP(localhost:60707)",
+                "test_name": "large_message"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 7.540999999999798e-07,
+                "max": 7.833000000012635e-07,
+                "mean": 7.604979999998874e-07,
+                "stddev": 6.315497298128962e-09,
+                "rounds": 50,
+                "median": 7.583000000033202e-07,
+                "iqr": 8.299999998406825e-09,
+                "q1": 7.542000000027027e-07,
+                "q3": 7.625000000011095e-07,
+                "iqr_outliers": 3,
+                "stddev_outliers": 10,
+                "outliers": "10;3",
+                "ld15iqr": 7.540999999999798e-07,
+                "hd15iqr": 7.750000000028567e-07,
+                "ops": 1314927.84990907,
+                "total": 3.802489999999438e-05,
+                "data": [
+                    7.709000000022392e-07,
+                    7.750000000028567e-07,
+                    7.624999999955584e-07,
+                    7.625000000011095e-07,
+                    7.582999999977691e-07,
+                    7.625000000011095e-07,
+                    7.582999999977691e-07,
+                    7.625000000011095e-07,
+                    7.542000000027027e-07,
+                    7.540999999999798e-07,
+                    7.542000000027027e-07,
+                    7.541999999971516e-07,
+                    7.582999999977691e-07,
+                    7.582999999977691e-07,
+                    7.542000000027027e-07,
+                    7.625000000011095e-07,
+                    7.582999999977691e-07,
+                    7.624999999955584e-07,
+                    7.624999999955584e-07,
+                    7.582999999977691e-07,
+                    7.624999999955584e-07,
+                    7.540999999999798e-07,
+                    7.625000000011095e-07,
+                    7.541999999971516e-07,
+                    7.750000000028567e-07,
+                    7.707999999995163e-07,
+                    7.582999999977691e-07,
+                    7.542000000027027e-07,
+                    7.666999999988989e-07,
+                    7.542000000027027e-07,
+                    7.540999999999798e-07,
+                    7.542000000027027e-07,
+                    7.582999999977691e-07,
+                    7.582999999977691e-07,
+                    7.542000000027027e-07,
+                    7.582999999977691e-07,
+                    7.58400000000492e-07,
+                    7.540999999999798e-07,
+                    7.583000000033202e-07,
+                    7.624999999955584e-07,
+                    7.58400000000492e-07,
+                    7.58400000000492e-07,
+                    7.625000000011095e-07,
+                    7.583000000033202e-07,
+                    7.583000000033202e-07,
+                    7.833000000012635e-07,
+                    7.708999999966881e-07,
+                    7.625000000011095e-07,
+                    7.625000000011095e-07,
+                    7.625000000011095e-07
+                ],
+                "iterations": 10
+            }
+        },
+        {
+            "group": null,
+            "name": "test_large_message_throughput[unix]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_large_message_throughput[unix]",
+            "params": {
+                "server_client_pair": "unix"
+            },
+            "param": "unix",
+            "extra_info": {
+                "connection_type": "Unix(/var/folders/01/vxy6h3w546d997by5kmwlygw0000gn/T/test_chat_27351.sock)",
+                "test_name": "large_message"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 7.375000000031661e-07,
+                "max": 8.083000000103091e-07,
+                "mean": 7.621620000004547e-07,
+                "stddev": 1.2220021878390178e-08,
+                "rounds": 50,
+                "median": 7.624999999955584e-07,
+                "iqr": 1.659999999681365e-08,
+                "q1": 7.541999999971516e-07,
+                "q3": 7.707999999939652e-07,
+                "iqr_outliers": 1,
+                "stddev_outliers": 14,
+                "outliers": "14;1",
+                "ld15iqr": 7.375000000031661e-07,
+                "hd15iqr": 8.083000000103091e-07,
+                "ops": 1312057.0167489366,
+                "total": 3.810810000002275e-05,
+                "data": [
+                    7.66600000001727e-07,
+                    7.583000000033202e-07,
+                    7.499999999938112e-07,
+                    7.625000000066606e-07,
+                    7.58299999992218e-07,
+                    7.45800000001573e-07,
+                    7.458999999987448e-07,
+                    7.500000000049134e-07,
+                    7.624999999955584e-07,
+                    7.45800000001573e-07,
+                    7.375000000031661e-07,
+                    7.500000000049134e-07,
+                    7.500000000049134e-07,
+                    7.499999999938112e-07,
+                    7.666999999988989e-07,
+                    7.707999999939652e-07,
+                    7.666999999988989e-07,
+                    7.583000000033202e-07,
+                    7.749999999973056e-07,
+                    7.792000000006461e-07,
+                    7.625000000066606e-07,
+                    7.749999999973056e-07,
+                    7.66600000001727e-07,
+                    7.792000000006461e-07,
+                    7.624999999955584e-07,
+                    7.791000000034742e-07,
+                    7.709000000022392e-07,
+                    7.791000000034742e-07,
+                    7.749999999973056e-07,
+                    7.750000000084079e-07,
+                    7.624999999955584e-07,
+                    7.542000000082538e-07,
+                    7.624999999955584e-07,
+                    7.625000000066606e-07,
+                    7.624999999955584e-07,
+                    7.500000000049134e-07,
+                    7.624999999955584e-07,
+                    7.583000000033202e-07,
+                    7.541999999971516e-07,
+                    7.583000000033202e-07,
+                    7.499999999938112e-07,
+                    7.624999999955584e-07,
+                    7.709000000022392e-07,
+                    7.624999999955584e-07,
+                    7.625000000066606e-07,
+                    7.707999999939652e-07,
+                    7.583000000033202e-07,
+                    7.541999999971516e-07,
+                    8.083000000103091e-07,
+                    7.45800000001573e-07
+                ],
+                "iterations": 10
+            }
+        },
+        {
+            "group": null,
+            "name": "test_small_message_batch[tcp]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_small_message_batch[tcp]",
+            "params": {
+                "server_client_pair": "tcp"
+            },
+            "param": "tcp",
+            "extra_info": {
+                "connection_type": "TCP(localhost:60709)",
+                "test_name": "small_message_batch"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 1.6832000000022163e-06,
+                "max": 1.8249999999664368e-06,
+                "mean": 1.7233000000027587e-06,
+                "stddev": 3.298155784035131e-08,
+                "rounds": 20,
+                "median": 1.7209000000129036e-06,
+                "iqr": 3.329999997969679e-08,
+                "q1": 1.700000000015578e-06,
+                "q3": 1.7332999999952748e-06,
+                "iqr_outliers": 1,
+                "stddev_outliers": 4,
+                "outliers": "4;1",
+                "ld15iqr": 1.6832000000022163e-06,
+                "hd15iqr": 1.8249999999664368e-06,
+                "ops": 580282.0170593624,
+                "total": 3.446600000005517e-05,
+                "data": [
+                    1.8249999999664368e-06,
+                    1.775000000003857e-06,
+                    1.7500000000225668e-06,
+                    1.7249999999968679e-06,
+                    1.7168000000289395e-06,
+                    1.7415999999936815e-06,
+                    1.700000000015578e-06,
+                    1.7166000000123915e-06,
+                    1.7333999999813443e-06,
+                    1.7332000000092051e-06,
+                    1.7082000000279153e-06,
+                    1.7081999999835062e-06,
+                    1.7249999999968679e-06,
+                    1.699999999971169e-06,
+                    1.6832000000022163e-06,
+                    1.7250000000412768e-06,
+                    1.700000000015578e-06,
+                    1.7249999999968679e-06,
+                    1.6832000000022163e-06,
+                    1.6915999999866927e-06
+                ],
+                "iterations": 5
+            }
+        },
+        {
+            "group": null,
+            "name": "test_small_message_batch[unix]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_small_message_batch[unix]",
+            "params": {
+                "server_client_pair": "unix"
+            },
+            "param": "unix",
+            "extra_info": {
+                "connection_type": "Unix(/var/folders/01/vxy6h3w546d997by5kmwlygw0000gn/T/test_chat_27351.sock)",
+                "test_name": "small_message_batch"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 4.025000000007495e-06,
+                "max": 6.325000000018122e-06,
+                "mean": 4.252920000002991e-06,
+                "stddev": 4.980327463369149e-07,
+                "rounds": 20,
+                "median": 4.1249999999770635e-06,
+                "iqr": 5.840000001367042e-08,
+                "q1": 4.10829999999418e-06,
+                "q3": 4.1667000000078506e-06,
+                "iqr_outliers": 2,
+                "stddev_outliers": 1,
+                "outliers": "1;2",
+                "ld15iqr": 4.025000000007495e-06,
+                "hd15iqr": 4.524999999988566e-06,
+                "ops": 235132.5677415274,
+                "total": 8.505840000005982e-05,
+                "data": [
+                    4.524999999988566e-06,
+                    4.2334000000199264e-06,
+                    4.108199999963702e-06,
+                    4.091600000011298e-06,
+                    4.133199999989401e-06,
+                    4.116800000009135e-06,
+                    4.075000000014483e-06,
+                    4.050000000033194e-06,
+                    4.116799999964726e-06,
+                    4.125000000021473e-06,
+                    4.108400000024659e-06,
+                    4.025000000007495e-06,
+                    4.116599999992587e-06,
+                    6.325000000018122e-06,
+                    4.158399999987239e-06,
+                    4.13320000003381e-06,
+                    4.175000000028462e-06,
+                    4.191799999997414e-06,
+                    4.1249999999770635e-06,
+                    4.1249999999770635e-06
+                ],
+                "iterations": 5
+            }
+        },
+        {
+            "group": null,
+            "name": "test_concurrent_clients[tcp]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_concurrent_clients[tcp]",
+            "params": {
+                "server_client_pair": "tcp"
+            },
+            "param": "tcp",
+            "extra_info": {
+                "connection_type": "TCP(localhost:60717)",
+                "test_name": "concurrent_clients"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.2916666666539243e-06,
+                "max": 2.6803333332825474e-06,
+                "mean": 2.37776666665764e-06,
+                "stddev": 1.1625186044650475e-07,
+                "rounds": 10,
+                "median": 2.34733333333755e-06,
+                "iqr": 8.299999991005303e-08,
+                "q1": 2.3056666667020664e-06,
+                "q3": 2.3886666666121195e-06,
+                "iqr_outliers": 1,
+                "stddev_outliers": 1,
+                "outliers": "1;1",
+                "ld15iqr": 2.2916666666539243e-06,
+                "hd15iqr": 2.6803333332825474e-06,
+                "ops": 420562.71291147,
+                "total": 2.37776666665764e-05,
+                "data": [
+                    2.6803333332825474e-06,
+                    2.444333333295745e-06,
+                    2.3610000000247786e-06,
+                    2.34733333333755e-06,
+                    2.34733333333755e-06,
+                    2.3196666666761936e-06,
+                    2.2916666666539243e-06,
+                    2.3886666666121195e-06,
+                    2.2916666666539243e-06,
+                    2.3056666667020664e-06
+                ],
+                "iterations": 3
+            }
+        },
+        {
+            "group": null,
+            "name": "test_concurrent_clients[unix]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_concurrent_clients[unix]",
+            "params": {
+                "server_client_pair": "unix"
+            },
+            "param": "unix",
+            "extra_info": {
+                "connection_type": "Unix(/var/folders/01/vxy6h3w546d997by5kmwlygw0000gn/T/test_chat_27351.sock)",
+                "test_name": "concurrent_clients"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 4.180666666631083e-06,
+                "max": 5.096999999990952e-06,
+                "mean": 4.438833333357076e-06,
+                "stddev": 3.2510314601926867e-07,
+                "rounds": 10,
+                "median": 4.291666666637421e-06,
+                "iqr": 2.7766666654827077e-07,
+                "q1": 4.2500000000759526e-06,
+                "q3": 4.527666666624223e-06,
+                "iqr_outliers": 2,
+                "stddev_outliers": 2,
+                "outliers": "2;2",
+                "ld15iqr": 4.180666666631083e-06,
+                "hd15iqr": 4.958333333397273e-06,
+                "ops": 225284.42158104252,
+                "total": 4.438833333357077e-05,
+                "data": [
+                    5.096999999990952e-06,
+                    4.958333333397273e-06,
+                    4.527666666624223e-06,
+                    4.291666666637421e-06,
+                    4.291666666637421e-06,
+                    4.2776666666632934e-06,
+                    4.2500000000759526e-06,
+                    4.222000000127697e-06,
+                    4.29166666678545e-06,
+                    4.180666666631083e-06
+                ],
+                "iterations": 3
+            }
+        },
+        {
+            "group": null,
+            "name": "test_message_latency[tcp]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_message_latency[tcp]",
+            "params": {
+                "server_client_pair": "tcp"
+            },
+            "param": "tcp",
+            "extra_info": {
+                "connection_type": "TCP(localhost:60723)",
+                "test_name": "message_latency"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.0724999999988113e-06,
+                "max": 3.950419999991794e-06,
+                "mean": 2.8960839999996325e-06,
+                "stddev": 5.309538391131118e-07,
+                "rounds": 10,
+                "median": 2.89666499999619e-06,
+                "iqr": 1.337600000006493e-07,
+                "q1": 2.8233300000035653e-06,
+                "q3": 2.9570900000042146e-06,
+                "iqr_outliers": 4,
+                "stddev_outliers": 3,
+                "outliers": "3;4",
+                "ld15iqr": 2.8233300000035653e-06,
+                "hd15iqr": 3.4050000000007687e-06,
+                "ops": 345293.85197395063,
+                "total": 2.8960839999996326e-05,
+                "data": [
+                    3.950419999991794e-06,
+                    3.4050000000007687e-06,
+                    2.9229200000013833e-06,
+                    2.9570900000042146e-06,
+                    2.910829999995812e-06,
+                    2.8283299999998235e-06,
+                    2.882499999996568e-06,
+                    2.8233300000035653e-06,
+                    2.2079200000035827e-06,
+                    2.0724999999988113e-06
+                ],
+                "iterations": 100
+            }
+        },
+        {
+            "group": null,
+            "name": "test_message_latency[unix]",
+            "fullname": "test_socket_chat.py::TestServerPerformance::test_message_latency[unix]",
+            "params": {
+                "server_client_pair": "unix"
+            },
+            "param": "unix",
+            "extra_info": {
+                "connection_type": "Unix(/var/folders/01/vxy6h3w546d997by5kmwlygw0000gn/T/test_chat_27351.sock)",
+                "test_name": "message_latency"
+            },
+            "options": {
+                "disable_gc": false,
+                "timer": "perf_counter",
+                "min_rounds": 5,
+                "max_time": 1.0,
+                "min_time": 5e-06,
+                "warmup": false
+            },
+            "stats": {
+                "min": 2.032909999991617e-06,
+                "max": 3.94791000000616e-06,
+                "mean": 2.826081999997676e-06,
+                "stddev": 9.516270972613481e-07,
+                "rounds": 10,
+                "median": 2.192499999997821e-06,
+                "iqr": 1.8887399999911736e-06,
+                "q1": 2.0395900000025335e-06,
+                "q3": 3.928329999993707e-06,
+                "iqr_outliers": 0,
+                "stddev_outliers": 4,
+                "outliers": "4;0",
+                "ld15iqr": 2.032909999991617e-06,
+                "hd15iqr": 3.94791000000616e-06,
+                "ops": 353846.7744392492,
+                "total": 2.826081999997676e-05,
+                "data": [
+                    3.94791000000616e-06,
+                    3.902079999997809e-06,
+                    3.928329999993707e-06,
+                    3.930419999997881e-06,
+                    2.3262499999976427e-06,
+                    2.0370799999991363e-06,
+                    2.057499999992274e-06,
+                    2.0395900000025335e-06,
+                    2.0587499999979997e-06,
+                    2.032909999991617e-06
+                ],
+                "iterations": 100
+            }
+        }
+    ],
+    "datetime": "2024-12-27T12:59:21.606592+00:00",
+    "version": "5.1.0"
+}

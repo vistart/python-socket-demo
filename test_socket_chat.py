@@ -3,7 +3,7 @@ import os
 import socket
 import tempfile
 import time
-from typing import AsyncGenerator, Generator, Tuple, Optional
+from typing import AsyncGenerator, Generator, Tuple, Optional, Callable, Any
 
 import pytest
 import pytest_asyncio
@@ -327,9 +327,39 @@ class TestUnixServer(BaseServerTests):
 # 性能基准测试
 @pytest.mark.benchmark
 class TestServerPerformance:
-    """服务器性能测试"""
+    """Server performance benchmark tests for both TCP and Unix sockets"""
+
+    @pytest.fixture(params=['tcp', 'unix'])
+    def server_client_pair(self, request) -> Tuple[BaseServer, Callable, str]:
+        """Fixture to provide server-client pairs for both TCP and Unix sockets"""
+        if request.param == 'tcp':
+            host, port = 'localhost', find_free_port()
+            return (
+                AsyncTCPServer(host, port),
+                lambda: AsyncTCPClient(host, port),
+                f'TCP({host}:{port})'
+            )
+        else:
+            socket_path = get_temp_socket_path()
+            return (
+                AsyncUnixServer(socket_path),
+                lambda: AsyncUnixClient(socket_path),
+                f'Unix({socket_path})'
+            )
+
+    async def wait_for_session_active(self, server, client, timeout=1.0) -> bool:
+        """Wait until session is created and activated"""
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if (client.session_id and
+                client.session_id in server.sessions and
+                server.sessions[client.session_id].is_connected):
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
     async def wait_for_client_connect(self, client, timeout=2.0) -> bool:
-        """等待客户端连接成功"""
+        """Wait for client to connect successfully"""
         try:
             start_time = asyncio.get_event_loop().time()
             while asyncio.get_event_loop().time() - start_time < timeout:
@@ -340,157 +370,115 @@ class TestServerPerformance:
         except Exception:
             return False
 
-    async def wait_for_session_active(self, server, client, timeout=1.0) -> bool:
-        """等待直到会话被创建并激活"""
-        start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            if (client.session_id and
-                client.session_id in server.sessions and
-                server.sessions[client.session_id].is_connected):
-                return True
-            await asyncio.sleep(0.1)
-        return False
-
-    @pytest.mark.asyncio
-    async def test_concurrent_clients(self, tcp_server_config: Tuple[str, int]):
-        """测试并发客户端性能"""
-        host, port = tcp_server_config
-        NUM_CLIENTS = 5  # 减少并发客户端数量
-        CONNECT_TIMEOUT = 2.0  # 增加连接超时时间
-
-        # 创建并启动服务器
-        server = AsyncTCPServer(host, port)
+    async def setup_connection(self, server: BaseServer, client_factory: Callable) -> Tuple[ServerWrapper, Any]:
+        """Helper function to setup server and client"""
+        # Start server
         wrapper = ServerWrapper(server)
         await wrapper.start()
-        await asyncio.sleep(0.1)  # 等待服务器启动
+        await asyncio.sleep(0.1)
 
-        try:
-            # 创建客户端并分批连接
-            clients = []
-            batch_size = 2  # 每批连接的客户端数量
+        # Create and connect client
+        client = client_factory()
+        await client.connect()
+        assert await self.wait_for_session_active(server, client)
 
-            for i in range(0, NUM_CLIENTS, batch_size):
-                batch_clients = [AsyncTCPClient(host, port) for _ in range(min(batch_size, NUM_CLIENTS - i))]
-                connect_tasks = [self.wait_for_client_connect(client) for client in batch_clients]
-                results = await asyncio.gather(*connect_tasks)
-
-                if not all(results):
-                    pytest.fail("Some clients failed to connect")
-
-                clients.extend(batch_clients)
-                await asyncio.sleep(0.1)  # 批次间延迟
-
-            # 并发发送消息
-            send_tasks = []
-            receive_tasks = []
-            for client in clients:
-                receive_tasks.append(asyncio.create_task(client.receive_messages()))
-                send_tasks.append(client.send_message("Test message"))
-
-            await asyncio.gather(*send_tasks)
-            await asyncio.sleep(0.1)
-
-            # 清理
-            for task in receive_tasks:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-            for client in clients:
-                await client.disconnect()
-
-        finally:
-            await wrapper.stop()
+        return wrapper, client
 
     @pytest.mark.asyncio
-    async def test_large_message_throughput(self, tcp_server: AsyncTCPServer, tcp_client: AsyncTCPClient):
-        """测试大消息吞吐量"""
-        # 1. 建立连接
-        await tcp_client.connect()
-        assert await self.wait_for_session_active(tcp_server, tcp_client)
-
-        # 2. 准备消息接收的事件和存储
-        responses = []
-        receive_event = asyncio.Event()
-
-        # 3. 在启动接收任务前设置回调
-        original_handle_message = tcp_client._handle_message
-
-        async def test_handle_message(message):
-            await original_handle_message(message)
-            responses.append(message)
-            receive_event.set()
-
-        tcp_client._handle_message = test_handle_message
-
-        # 4. 启动接收任务
-        receive_task = asyncio.create_task(tcp_client.receive_messages())
+    async def test_large_message_throughput(self, server_client_pair, benchmark):
+        """Test large message throughput for both TCP and Unix sockets"""
+        server, client_factory, connection_type = server_client_pair
+        wrapper, client = await self.setup_connection(server, client_factory)
 
         try:
-            # 5. 准备大消息 (100KB)
+            # Setup message handling
+            responses = []
+            receive_event = asyncio.Event()
+            original_handle_message = client._handle_message
+
+            async def test_handle_message(message):
+                await original_handle_message(message)
+                responses.append(message)
+                receive_event.set()
+
+            client._handle_message = test_handle_message
+            receive_task = asyncio.create_task(client.receive_messages())
+
+            # Prepare large message
             message_size = 100 * 1024  # 100KB
             large_message = "X" * message_size
 
-            # 6. 发送消息
-            await tcp_client.send_message(large_message)
+            # Benchmark function
+            async def send_receive_cycle():
+                responses.clear()
+                receive_event.clear()
+                await client.send_message(large_message)
+                try:
+                    await asyncio.wait_for(receive_event.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pytest.fail(f"{connection_type}: Timeout waiting for response")
+                assert len(responses) == 1
+                assert len(responses[0].content) == message_size
 
-            try:
-                # 7. 等待接收响应
-                await asyncio.wait_for(receive_event.wait(), timeout=5.0)
-
-                # 8. 验证响应
-                assert len(responses) == 1, f"Expected 1 response, got {len(responses)}"
-                assert len(responses[0].content) == message_size, \
-                    f"Response size mismatch: expected {message_size}, got {len(responses[0].content)}"
-
-            except asyncio.TimeoutError:
-                pytest.fail("Timeout while waiting for response")
+            # Run benchmark with description
+            benchmark.extra_info.update({
+                'connection_type': connection_type,
+                'test_name': 'large_message'
+            })
+            await benchmark.pedantic(
+                send_receive_cycle,
+                iterations=10,
+                rounds=50,
+                warmup_rounds=2
+            )
 
         finally:
-            # 9. 恢复原始回调并清理资源
-            tcp_client._handle_message = original_handle_message
-
-            if not receive_task.done():
-                receive_task.cancel()
-                try:
-                    await receive_task
-                except asyncio.CancelledError:
-                    pass
-
-            await tcp_client.disconnect()
+            # Cleanup
+            client._handle_message = original_handle_message
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+            await client.disconnect()
+            await wrapper.stop()
 
     @pytest.mark.asyncio
-    async def test_small_message_throughput(self, tcp_server: AsyncTCPServer, tcp_client: AsyncTCPClient):
-        """测试小消息吞吐量"""
-        await tcp_client.connect()
-        assert await self.wait_for_session_active(tcp_server, tcp_client)
-
-        # 创建消息接收任务
-        receive_task = asyncio.create_task(tcp_client.receive_messages())
+    async def test_small_message_batch(self, server_client_pair, benchmark):
+        """Test small message batch processing for both TCP and Unix sockets"""
+        server, client_factory, connection_type = server_client_pair
+        wrapper, client = await self.setup_connection(server, client_factory)
 
         try:
-            small_message = "ping"
-            sent_count = 1000
-            received_count = 0
+            receive_task = asyncio.create_task(client.receive_messages())
 
-            # 发送消息并等待确认
-            for _ in range(sent_count):
-                await tcp_client.send_message(small_message)
-                await asyncio.sleep(0.001)  # 小延迟防止flooding
+            # Benchmark function
+            async def send_batch():
+                small_message = "ping"
+                batch_size = 100
+                for _ in range(batch_size):
+                    await client.send_message(small_message)
+                    await asyncio.sleep(0.001)
 
-            # 等待所有消息处理完成
-            timeout = 20  # 10秒超时
-            start_time = asyncio.get_event_loop().time()
-            while received_count < sent_count:
-                if asyncio.get_event_loop().time() - start_time > timeout:
-                    pytest.fail("Timeout waiting for message processing")
-                await asyncio.sleep(0.1)
-                session = tcp_server.sessions[tcp_client.session_id]
-                # 检查服务器端处理的消息数量
-                # 这里需要在Session类中添加processed_messages计数
-                received_count = session.get_extra_info('processed_messages', 0)
+                # Wait for server processing
+                session = server.sessions[client.session_id]
+                start_time = asyncio.get_event_loop().time()
+                while session.get_extra_info('processed_messages', 0) < batch_size:
+                    if asyncio.get_event_loop().time() - start_time > 5:
+                        pytest.fail(f"{connection_type}: Timeout waiting for batch processing")
+                    await asyncio.sleep(0.1)
+
+            # Run benchmark with description
+            benchmark.extra_info.update({
+                'connection_type': connection_type,
+                'test_name': 'small_message_batch'
+            })
+            await benchmark.pedantic(
+                send_batch,
+                iterations=5,
+                rounds=20,
+                warmup_rounds=1
+            )
 
         finally:
             receive_task.cancel()
@@ -498,5 +486,209 @@ class TestServerPerformance:
                 await receive_task
             except asyncio.CancelledError:
                 pass
+            await client.disconnect()
+            await wrapper.stop()
 
-        await tcp_client.disconnect()
+    @pytest.mark.asyncio
+    async def test_concurrent_clients(self, server_client_pair, benchmark):
+        """Test concurrent client performance for both TCP and Unix sockets"""
+        server, client_factory, connection_type = server_client_pair
+        wrapper = ServerWrapper(server)
+        await wrapper.start()
+        await asyncio.sleep(0.1)
+
+        try:
+            async def concurrent_test():
+                NUM_CLIENTS = 5
+                # Create and connect clients
+                clients = []
+                for _ in range(NUM_CLIENTS):
+                    client = client_factory()
+                    assert await self.wait_for_client_connect(client)
+                    clients.append(client)
+
+                # Send test messages
+                tasks = []
+                for client in clients:
+                    tasks.append(asyncio.create_task(client.send_message("Test message")))
+
+                await asyncio.gather(*tasks)
+
+                # Cleanup clients
+                for client in clients:
+                    await client.disconnect()
+
+            # Run benchmark with description
+            benchmark.extra_info.update({
+                'connection_type': connection_type,
+                'test_name': 'concurrent_clients'
+            })
+            await benchmark.pedantic(
+                concurrent_test,
+                iterations=3,
+                rounds=10,
+                warmup_rounds=1
+            )
+
+        finally:
+            await wrapper.stop()
+
+    @pytest.mark.asyncio
+    async def test_message_latency(self, server_client_pair, benchmark):
+        """Test message round-trip latency for both TCP and Unix sockets"""
+        server, client_factory, connection_type = server_client_pair
+        wrapper, client = await self.setup_connection(server, client_factory)
+
+        try:
+            # Setup message handling
+            response_received = asyncio.Event()
+            original_handle_message = client._handle_message
+
+            async def test_handle_message(message):
+                await original_handle_message(message)
+                response_received.set()
+
+            client._handle_message = test_handle_message
+            receive_task = asyncio.create_task(client.receive_messages())
+
+            # Benchmark function
+            async def measure_latency():
+                response_received.clear()
+                start_time = time.time()
+                await client.send_message("ping")
+                try:
+                    await asyncio.wait_for(response_received.wait(), timeout=1.0)
+                    latency = time.time() - start_time
+                    return latency
+                except asyncio.TimeoutError:
+                    pytest.fail(f"{connection_type}: Timeout measuring latency")
+
+            # Run benchmark with description
+            benchmark.extra_info.update({
+                'connection_type': connection_type,
+                'test_name': 'message_latency'
+            })
+            await benchmark.pedantic(
+                measure_latency,
+                iterations=100,
+                rounds=10,
+                warmup_rounds=2
+            )
+
+        finally:
+            client._handle_message = original_handle_message
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+            await client.disconnect()
+            await wrapper.stop()
+
+
+def visualize_benchmark_results(json_file):
+    """
+    读取 pytest-benchmark 的 JSON 输出并创建可视化图表
+    """
+    # 读取基准测试结果
+    import json
+    import matplotlib.pyplot as plt
+    import numpy as np
+    with open(json_file) as f:
+        results = json.load(f)
+
+    # 提取测试数据
+    benchmarks = results['benchmarks']
+
+    # 按测试名称和连接类型组织数据
+    test_data = {}
+    for bench in benchmarks:
+        test_name = bench['extra_info']['test_name']
+        conn_type = bench['extra_info']['connection_type'].split('(')[0]  # 提取 TCP 或 Unix
+
+        if test_name not in test_data:
+            test_data[test_name] = {'TCP': None, 'Unix': None}
+
+        # 存储均值（秒）和标准差
+        test_data[test_name][conn_type] = {
+            'mean': bench['stats']['mean'],
+            'stddev': bench['stats']['stddev']
+        }
+
+    # 创建图表
+    plt.style.use('seaborn-v0_8-deep')
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+    fig.suptitle('Socket Performance Benchmark Results', fontsize=16)
+
+    # 配置子图
+    plots = {
+        'large_message': {
+            'ax': ax1,
+            'title': 'Large Message Throughput',
+            'ylabel': 'Time (seconds)'
+        },
+        'small_message_batch': {
+            'ax': ax2,
+            'title': 'Small Message Batch Processing',
+            'ylabel': 'Time (seconds)'
+        },
+        'concurrent_clients': {
+            'ax': ax3,
+            'title': 'Concurrent Clients Setup',
+            'ylabel': 'Time (seconds)'
+        },
+        'message_latency': {
+            'ax': ax4,
+            'title': 'Message Round-trip Latency',
+            'ylabel': 'Time (milliseconds)'
+        }
+    }
+
+    # 绘制每个测试的结果
+    bar_width = 0.35
+    for test_name, plot_info in plots.items():
+        ax = plot_info['ax']
+        data = test_data[test_name]
+
+        # 准备数据
+        tcp_data = data['TCP']
+        unix_data = data['Unix']
+
+        # 转换延迟测试的单位为毫秒
+        if test_name == 'message_latency':
+            tcp_data = {
+                'mean': tcp_data['mean'] * 1000,
+                'stddev': tcp_data['stddev'] * 1000
+            }
+            unix_data = {
+                'mean': unix_data['mean'] * 1000,
+                'stddev': unix_data['stddev'] * 1000
+            }
+
+        # 绘制柱状图
+        x = np.arange(1)
+        ax.bar(x - bar_width / 2, tcp_data['mean'], bar_width,
+               label='TCP', color='#2ecc71',
+               yerr=tcp_data['stddev'], capsize=5)
+        ax.bar(x + bar_width / 2, unix_data['mean'], bar_width,
+               label='Unix', color='#3498db',
+               yerr=unix_data['stddev'], capsize=5)
+
+        # 设置图表属性
+        ax.set_title(plot_info['title'])
+        ax.set_ylabel(plot_info['ylabel'])
+        ax.set_xticks([])
+        ax.legend()
+
+        # 添加数值标签
+        def add_value_label(x, value, yerr):
+            ax.text(x, value + yerr + (ax.get_ylim()[1] * 0.02),
+                    f'{value:.3f}',
+                    ha='center', va='bottom')
+
+        add_value_label(x - bar_width / 2, tcp_data['mean'], tcp_data['stddev'])
+        add_value_label(x + bar_width / 2, unix_data['mean'], unix_data['stddev'])
+
+    plt.tight_layout()
+    plt.savefig('benchmark_results.png', dpi=300, bbox_inches='tight')
+    plt.close()
