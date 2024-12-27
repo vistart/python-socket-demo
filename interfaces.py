@@ -66,6 +66,14 @@ class IServer(ABC):
         pass
 
     @abstractmethod
+    async def start_server(self) -> None:
+        """启动服务器基础设施
+
+        子类必须实现此方法以启动具体的服务器类型
+        """
+        pass
+
+    @abstractmethod
     async def handle_client(
             self,
             reader: asyncio.StreamReader,

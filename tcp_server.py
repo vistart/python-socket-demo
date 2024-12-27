@@ -26,23 +26,20 @@ class AsyncTCPServer(BaseServer):
         self.port = port
 
     async def start(self) -> None:
+        """完整的服务器启动流程"""
+        await super().start()
+        if self._server:
+            async with self._server:
+                await self._server.serve_forever()
+
+    async def start_server(self) -> None:
         """启动TCP服务器"""
-        server = await asyncio.start_server(
+        self._server = await asyncio.start_server(
             self.handle_client,
             self.host,
             self.port
         )
-
         print(f"TCP server started on {self.host}:{self.port}")
-
-        try:
-            heartbeat_task = asyncio.create_task(self.check_sessions())
-            async with server:
-                await server.serve_forever()
-        except asyncio.CancelledError:
-            print("Server shutdown initiated")
-        finally:
-            await self.stop()
 
     async def _create_session(self, writer: asyncio.StreamWriter) -> TCPSession:
         """创建TCP会话"""

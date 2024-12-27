@@ -249,59 +249,151 @@ class CustomServer(BaseServer):
 
 ## Testing
 
+### 测试架构
+
 1. 基础结构：
-- 使用pytest和pytest-asyncio进行异步测试
-- 提供了查找可用TCP端口和临时Unix套接字路径的辅助函数
+- 使用 pytest 和 pytest-asyncio 进行异步测试
+- 提供了 ServerWrapper 类来管理服务器生命周期
+- 提供了查找可用 TCP 端口和临时 Unix 套接字路径的辅助函数
 - 使用夹具来管理事件循环、服务器和客户端的生命周期
 
 2. 测试类层次：
-- `BaseTestServer`: 提供服务器和客户端夹具的基类
-- `TestTCPServer`/`TestUnixServer`: 分别配置TCP和Unix套接字测试环境
-- `BaseServerTests`: 包含两种服务器通用的测试用例
-- `TestTCPServerImpl`/`TestUnixServerImpl`: 具体服务器实现的测试类
+```
+BaseServerTests
+├── TestTCPServer
+│   ├── test_tcp_specific_feature
+│   └── (继承的通用测试)
+└── TestUnixServer
+    ├── test_socket_file_cleanup
+    └── (继承的通用测试)
+```
 
 3. 主要测试用例：
 - 基本连接测试：验证客户端连接和断开
-- 心跳机制测试：确保心跳保持连接活跃
-- 消息收发测试：测试基本的消息发送和接收
-- 多消息测试：测试连续发送多条消息
+- 心跳机制测试：使用单次心跳进行精确测试
+- 消息收发测试：验证消息的发送和接收
+- 会话管理测试：验证会话的创建和清理
+- 并发和性能测试：使用基准测试进行压力测试
 
-4. 增强功能测试：
-- `EnhancedServer`: 实现了自定义消息处理，为每个会话跟踪消息计数
-- `TestEnhancedServer`: 测试增强的消息处理功能
+### 使用方法
 
-5. 基准测试：
-- 并发客户端测试：同时运行多个客户端
-- 大消息吞吐量测试：测试大数据传输性能
-- 小消息吞吐量测试：测试高频小消息传输性能
-
-要运行测试，需要以下步骤：
-
-1. 安装测试依赖：
+1. 安装依赖：
 ```bash
 pip install pytest pytest-asyncio pytest-benchmark
 ```
 
-2. 运行所有测试：
+2. 运行测试：
 ```bash
+# 运行所有测试
 pytest test_socket_chat.py -v
-```
 
-3. 只运行基准测试：
-```bash
+# 运行 TCP 测试
+pytest test_socket_chat.py -v -k TCP
+
+# 运行 Unix 套接字测试
+pytest test_socket_chat.py -v -k Unix
+
+# 运行性能测试
 pytest test_socket_chat.py -v -m benchmark
 ```
 
-4. 只运行特定类型的测试：
-```bash
-# 只运行TCP测试
-pytest test_socket_chat.py -v -k TCP
+### 服务器包装器
 
-# 只运行Unix套接字测试
-pytest test_socket_chat.py -v -k Unix
+ServerWrapper 类用于管理服务器的生命周期：
+```python
+async with ServerWrapper(server) as wrapper:
+    # 服务器已启动
+    await do_something()
+    # 自动清理资源
 ```
 
-这个测试套件涵盖了基本功能测试和性能测试，同时通过继承结构减少了代码重复。你可以根据需要扩展测试用例或修改基准测试的参数。
+特点：
+- 非阻塞服务器启动
+- 自动资源清理
+- 支持 TCP 和 Unix 套接字服务器
+- 异常情况的优雅处理
+
+### 测试辅助工具
+
+1. 会话等待工具：
+```python
+async def wait_for_session_active(self, server, client, timeout=1.0):
+    """等待直到会话被创建并激活"""
+    # ...
+```
+
+2. 客户端心跳工具：
+```python
+async def send_single_heartbeat(self):
+    """发送单次心跳包，用于精确测试"""
+    # ...
+```
+
+3. 并发测试辅助：
+```python
+async def wait_for_client_connect(self, client, timeout=2.0):
+    """等待客户端连接成功"""
+    # ...
+```
+
+### 性能测试说明
+
+1. 并发客户端测试：
+- 使用分批连接避免连接风暴
+- 支持可配置的并发数和超时时间
+- 提供连接和消息吞吐量指标
+
+2. 消息吞吐量测试：
+- 大消息测试（1MB）
+- 小消息高频测试（1000条）
+- 支持自定义消息大小和频率
+
+### 性能测试说明
+
+1. 基准测试设置：
+```bash
+# 运行所有基准测试
+pytest test_socket_chat.py -v -m benchmark
+
+# 运行特定基准测试
+pytest test_socket_chat.py -v -k test_large_message_throughput
+
+# 输出详细的基准报告
+pytest test_socket_chat.py --benchmark-only --benchmark-json=output.json
+```
+
+2. 基准测试指标：
+- 操作延迟（min/max/mean）
+- 吞吐量（ops/sec）
+- 标准差和分布
+- CPU 和内存使用情况
+
+3. 测试场景：
+- 并发客户端：5个客户端，分批连接
+- 大消息传输：100KB消息块
+- 小消息高频：每批100条小消息
+
+4. 性能优化建议：
+- 调整分块大小（CHUNK_SIZE）
+- 修改并发客户端数量
+- 配置发送频率控制
+
+### 注意事项
+
+1. 资源管理：
+- 测试结束时确保清理所有资源
+- 使用 pytest 夹具管理生命周期
+- 合理设置超时和重试次数
+
+2. 异步测试：
+- 所有异步夹具使用 @pytest_asyncio.fixture
+- 正确处理事件循环和任务取消
+- 避免测试间的资源竞争
+
+3. 并发测试：
+- 合理设置并发数避免资源耗尽
+- 使用分批处理避免连接风暴
+- 注意清理所有异步任务
 
 ## License
 

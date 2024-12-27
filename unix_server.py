@@ -23,27 +23,24 @@ class AsyncUnixServer(BaseServer):
         self.socket_path = socket_path
 
     async def start(self) -> None:
-        """启动Unix套接字服务器"""
+        """完整的服务器启动流程"""
+        await super().start()
+        if self._server:
+            async with self._server:
+                await self._server.serve_forever()
+
+    async def start_server(self) -> None:
+        """启动Unix套接字文件"""
         try:
             os.unlink(self.socket_path)
         except FileNotFoundError:
             pass
 
-        server = await asyncio.start_unix_server(
+        self._server = await asyncio.start_unix_server(
             self.handle_client,
             path=self.socket_path
         )
-
         print(f"Unix socket server started at {self.socket_path}")
-
-        try:
-            heartbeat_task = asyncio.create_task(self.check_sessions())
-            async with server:
-                await server.serve_forever()
-        except asyncio.CancelledError:
-            print("Server shutdown initiated")
-        finally:
-            await self.stop()
 
     async def _cleanup(self) -> None:
         """清理Unix套接字文件"""

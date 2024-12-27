@@ -1,7 +1,8 @@
 import asyncio
+import struct
 from abc import abstractmethod
 from typing import Optional
-from message import EnhancedMessageHandler, Message, MessageType, PresetMessages
+from message import EnhancedMessageHandler, Message, MessageType, PresetMessages, MessageEnvelope
 from interfaces import IClient
 
 
@@ -27,17 +28,24 @@ class BaseAsyncClient(IClient):
                 # 发送断开连接消息
                 disconnect_msg = PresetMessages.disconnect(self.session_id)
                 await self._send_message_internal(disconnect_msg)
-            except Exception:
-                pass  # 忽略断开连接时的发送错误
+                # 等待服务器处理断开连接的消息
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                print(f"Error sending disconnect message: {e}")
 
         self.running = False
         self.connected = False
+        self.session_id = None  # 确保清理会话ID
+
         if self.writer:
             try:
                 self.writer.close()
                 await self.writer.wait_closed()
             except Exception as e:
                 print(f"Error closing connection: {e}")
+            finally:
+                self.writer = None  # 确保清理writer
+                self.reader = None  # 确保清理reader
 
     async def send_message(self, content: str) -> None:
         """发送消息到服务器"""
@@ -45,8 +53,14 @@ class BaseAsyncClient(IClient):
             return
 
         try:
-            message = PresetMessages.user_message(content.encode(), self.session_id)
+            # 确保字符串被正确编码为bytes
+            message = PresetMessages.user_message(
+                content.encode('utf-8'),
+                self.session_id,
+                'text/plain; charset=utf-8'
+            )
             await self._send_message_internal(message)
+            await self.writer.drain()  # 确保数据被完全发送
             print(f"Sent: {content}")
         except Exception as e:
             print(f"Error sending message: {e}")
@@ -59,21 +73,120 @@ class BaseAsyncClient(IClient):
 
         try:
             data = self.message_handler.encode_message(message)
-            self.writer.write(data)
+            CHUNK_SIZE = 8192  # 8KB chunks
+
+            # 首先发送完整的消息头
+            header_size = MessageEnvelope.HEADER_SIZE
+            self.writer.write(data[:header_size])
             await self.writer.drain()
+
+            # 然后分块发送剩余数据
+            remaining_data = data[header_size:]
+            for i in range(0, len(remaining_data), CHUNK_SIZE):
+                chunk = remaining_data[i:i + CHUNK_SIZE]
+                self.writer.write(chunk)
+                await self.writer.drain()
+
         except Exception as e:
             print(f"Error sending message: {e}")
             raise
 
-    async def send_heartbeat(self, interval: int = 5) -> None:
-        """发送心跳包"""
-        while self.running and self.connected and self.session_id:
+    async def _receive_complete_message(self) -> bytes:
+        """接收完整的消息"""
+        if not self.reader:
+            return b''
+
+        try:
+            # 1. 首先读取固定大小的头部
+            header_data = await self._read_exactly(MessageEnvelope.HEADER_SIZE)
+            if not header_data:
+                print("No header data received")
+                return b''
+
+            # print(f"Received header magic: {header_data[:8].hex()}")
+
+            # 2. 解析头部以获取后续数据的长度
+            try:
+                (magic, version, msg_type, header_len, header_crc,
+                 content_len, content_crc, hmac_digest) = struct.unpack(
+                    MessageEnvelope.HEADER_FORMAT,
+                    header_data
+                )
+            except struct.error as e:
+                print(f"Failed to unpack header: {e}")
+                return b''
+
+            # 3. 验证魔数
+            if magic != MessageEnvelope.MAGIC:
+                print(f"Invalid magic number in header: expected {MessageEnvelope.MAGIC.hex()}, got {magic.hex()}")
+                return b''
+
+            # print(f"Header decoded: header_len={header_len}, content_len={content_len}")
+
+            # 4. 读取消息头和消息体
+            remaining_len = header_len + content_len
+            # print(f"Reading remaining {remaining_len} bytes...")
+
+            remaining_data = await self._read_exactly(remaining_len)
+            if not remaining_data or len(remaining_data) != remaining_len:
+                print(
+                    f"Failed to read complete message: got {len(remaining_data) if remaining_data else 0} bytes, expected {remaining_len}")
+                return b''
+
+            # 5. 组装完整消息
+            complete_message = header_data + remaining_data
+            # print(f"Complete message assembled: {len(complete_message)} bytes")
+            return complete_message
+
+        except Exception as e:
+            print(f"Error in _receive_complete_message: {e}")
+            return b''
+
+    async def _read_exactly(self, n: int) -> bytes:
+        """准确读取指定字节数的数据
+
+        Args:
+            n: 需要读取的字节数
+
+        Returns:
+            bytes: 读取到的数据
+
+        Raises:
+            ValueError: 如果无法读取足够的数据
+        """
+        if not self.reader:
+            return b''
+
+        data = b''
+        remaining = n
+
+        while remaining > 0:
+            chunk = await self.reader.read(remaining)
+            if not chunk:  # EOF
+                raise ValueError(f"Connection closed while reading, got {len(data)} bytes, expected {n}")
+            data += chunk
+            remaining -= len(chunk)
+
+        return data
+
+    async def send_single_heartbeat(self) -> None:
+        """发送单次心跳包"""
+        if self.connected and self.session_id:
             try:
                 message = PresetMessages.heartbeat_ping(self.session_id)
                 await self._send_message_internal(message)
-                await asyncio.sleep(interval)
             except Exception as e:
                 print(f"Error sending heartbeat: {e}")
+                self.running = False
+
+    async def send_heartbeat(self, interval: int = 5) -> None:
+        """发送心跳包（循环）"""
+        while self.running and self.connected and self.session_id:
+            try:
+                await self.send_single_heartbeat()
+                await asyncio.sleep(interval)
+            except Exception as e:
+                print(f"Error in heartbeat loop: {e}")
                 self.running = False
                 break
 
@@ -81,7 +194,7 @@ class BaseAsyncClient(IClient):
         """接收并处理服务器消息"""
         while self.running and self.connected and self.reader:
             try:
-                data = await self.reader.read(1024)
+                data = await self._receive_complete_message()
                 if not data:
                     break
 
@@ -133,9 +246,10 @@ class BaseAsyncClient(IClient):
                 print("No session ID received from server")
                 return False
 
-            # 发送确认消息
+            # 发送确认消息并等待确认完成
             ack_message = PresetMessages.session_ack(self.session_id)
             await self._send_message_internal(ack_message)
+            await asyncio.sleep(0.1)  # 给服务器处理确认消息的时间
 
             return True
         except Exception as e:
