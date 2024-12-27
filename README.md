@@ -211,6 +211,62 @@ class CustomServer(BaseServer):
         # Custom message handling
 ```
 
+## Testing
+
+1. 基础结构：
+- 使用pytest和pytest-asyncio进行异步测试
+- 提供了查找可用TCP端口和临时Unix套接字路径的辅助函数
+- 使用夹具来管理事件循环、服务器和客户端的生命周期
+
+2. 测试类层次：
+- `BaseTestServer`: 提供服务器和客户端夹具的基类
+- `TestTCPServer`/`TestUnixServer`: 分别配置TCP和Unix套接字测试环境
+- `BaseServerTests`: 包含两种服务器通用的测试用例
+- `TestTCPServerImpl`/`TestUnixServerImpl`: 具体服务器实现的测试类
+
+3. 主要测试用例：
+- 基本连接测试：验证客户端连接和断开
+- 心跳机制测试：确保心跳保持连接活跃
+- 消息收发测试：测试基本的消息发送和接收
+- 多消息测试：测试连续发送多条消息
+
+4. 增强功能测试：
+- `EnhancedServer`: 实现了自定义消息处理，为每个会话跟踪消息计数
+- `TestEnhancedServer`: 测试增强的消息处理功能
+
+5. 基准测试：
+- 并发客户端测试：同时运行多个客户端
+- 大消息吞吐量测试：测试大数据传输性能
+- 小消息吞吐量测试：测试高频小消息传输性能
+
+要运行测试，需要以下步骤：
+
+1. 安装测试依赖：
+```bash
+pip install pytest pytest-asyncio pytest-benchmark
+```
+
+2. 运行所有测试：
+```bash
+pytest test_socket_chat.py -v
+```
+
+3. 只运行基准测试：
+```bash
+pytest test_socket_chat.py -v -m benchmark
+```
+
+4. 只运行特定类型的测试：
+```bash
+# 只运行TCP测试
+pytest test_socket_chat.py -v -k TCP
+
+# 只运行Unix套接字测试
+pytest test_socket_chat.py -v -k Unix
+```
+
+这个测试套件涵盖了基本功能测试和性能测试，同时通过继承结构减少了代码重复。你可以根据需要扩展测试用例或修改基准测试的参数。
+
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0)
