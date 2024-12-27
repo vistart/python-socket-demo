@@ -98,12 +98,14 @@ class BaseAsyncClient(IClient):
 
     async def _handle_message(self, message: Message) -> None:
         """处理接收到的消息"""
-        if message.type == MessageType.MESSAGE:
+        if message.type == MessageType.MESSAGE.value:
             print(f"Received: {message.content}")
-        elif message.type == MessageType.ERROR:
+            if message.content_type == 'text/plain' or message.content_type == 'text/plain; charset=utf-8':
+                print(f"Decoded: {message.content.decode('utf-8')}")
+        elif message.type == MessageType.ERROR.value:
             print(f"Error from server: {message.content}")
             self.running = False
-        elif message.type == MessageType.DISCONNECT:
+        elif message.type == MessageType.DISCONNECT.value:
             print("Server requested disconnect")
             self.running = False
 
@@ -122,7 +124,7 @@ class BaseAsyncClient(IClient):
 
         try:
             init_message = self.message_handler.decode_message(init_data)
-            if init_message.type != MessageType.SESSION_INIT:
+            if init_message.type != MessageType.SESSION_INIT.value:
                 print("Invalid session initialization from server")
                 return False
 

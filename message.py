@@ -6,7 +6,7 @@ import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 
 class MessageType(Enum):
@@ -147,7 +147,7 @@ class PresetMessages:
         )
 
     @staticmethod
-    def user_message(content: bytes, session_id: str, content_type: Optional[str] = 'application/octet-stream') -> Message:
+    def user_message(content: bytes, session_id: str, content_type: Optional[str] = 'text/plain') -> Message:
         return Message(
             MessageType.MESSAGE.value,
             content,
@@ -187,9 +187,7 @@ class MessageEnvelope:
         """初始化消息封装
 
         Args:
-            msg_type: 消息类型
-            content: 消息内容
-            content_type: 内容类型
+            message: 消息
             hmac_key: HMAC密钥
         """
         if not message.validate():
@@ -299,7 +297,7 @@ class MessageEnvelope:
         return cls(Message(header.get('type'), content, header.get('session_id'), header.get('content_type')),hmac_key)
 
     def to_message(self) -> Message:
-        return Message(self.msg_type, self.content, self.session_id, self.content_type)
+        return Message(self.msg_type.value, self.content, self.session_id, self.content_type)
 
 
 class EnhancedMessageHandler(IMessageHandler):

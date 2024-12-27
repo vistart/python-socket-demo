@@ -57,7 +57,7 @@ class BaseServer(IServer):
 
             try:
                 response = self.message_handler.decode_message(client_response)
-                if (response.type != MessageType.SESSION_ACK or
+                if (response.type != MessageType.SESSION_ACK.value or
                         response.session_id != session.session_id):
                     print(f"Invalid session acknowledgment")
                     return
@@ -106,20 +106,21 @@ class BaseServer(IServer):
             message: Message
     ) -> None:
         """处理收到的消息"""
-        if message.type == MessageType.HEARTBEAT:
+        if message.type == MessageType.HEARTBEAT.value:
             session.update_heartbeat()
             response = PresetMessages.heartbeat_pong(session.session_id)
             await self.send_message(session, response)
 
-        elif message.type == MessageType.MESSAGE:
+        elif message.type == MessageType.MESSAGE.value:
             print(f"Received from {session}: {message.content}")
             response = PresetMessages.user_message(
-                f"Server received: {message.content}".encode(),
+                # f"Server received: {message.content}".encode(),
+                message.content,  # 原样返回。
                 session.session_id
             )
             await self.send_message(session, response)
 
-        elif message.type == MessageType.DISCONNECT:
+        elif message.type == MessageType.DISCONNECT.value:
             await self.remove_session(session.session_id)
 
     async def send_message(
