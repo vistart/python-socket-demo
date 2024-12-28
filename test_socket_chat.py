@@ -1,11 +1,12 @@
 import asyncio
 import json
 import os
+import platform
 import socket
 import sys
 import tempfile
 import time
-from typing import AsyncGenerator, Generator, Tuple, Optional, Callable, Any
+from typing import AsyncGenerator, Tuple, Optional, Callable, Any
 
 import pytest
 import pytest_asyncio
@@ -17,6 +18,16 @@ from tcp_server import AsyncTCPServer
 from unix_client import AsyncUnixClient
 from unix_server import AsyncUnixServer
 
+# 设置事件循环策略
+if platform.system() == 'Windows':
+    if sys.version_info >= (3, 8):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+else:
+    if hasattr(asyncio, 'PosixEventLoopPolicy'):
+        asyncio.set_event_loop_policy(asyncio.PosixEventLoopPolicy())
+
+# 将测试标记为使用会话级别的事件循环
+pytestmark = pytest.mark.asyncio(scope="session")
 
 # 辅助函数
 def find_free_port() -> int:
@@ -31,16 +42,6 @@ def find_free_port() -> int:
 def get_temp_socket_path() -> str:
     """获取临时Unix套接字路径"""
     return os.path.join(tempfile.gettempdir(), f'test_chat_{os.getpid()}.sock')
-
-
-# 基础夹具
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """创建事件循环，整个测试会话共享"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
 
 # 服务器包装类
 class ServerWrapper:
@@ -497,12 +498,33 @@ class TestUnixServer(BaseServerTests):
         await unix_server.stop()
         assert not os.path.exists(unix_socket_path)
 
+if sys.version_info >= (3, 11):
+    timeout_context = asyncio.timeout
+else:
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def timeout_context(delay):
+        try:
+            yield await asyncio.wait_for(asyncio.sleep(float('inf')), delay)
+        except asyncio.TimeoutError:
+            pass
 
 # 性能基准测试
 @pytest.mark.benchmark
 @pytest.mark.skipif(sys.platform.startswith('win'), reason="not supported on Windows")
 class TestServerPerformance:
     """Server performance benchmark tests for both TCP and Unix sockets"""
+
+    async def wait_for_messages_processed(self, server, session_id, expected_count, timeout=5.0):
+        """等待直到指定数量的消息被处理"""
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if session_id in server.sessions:
+                session = server.sessions[session_id]
+                if session.get_extra_info('processed_messages', 0) >= expected_count:
+                    return True
+            await asyncio.sleep(0.1)
+        return False
 
     @pytest.fixture(params=['tcp', 'unix'])
     def server_client_pair(self, request) -> Tuple[BaseServer, Callable, str]:
@@ -559,43 +581,41 @@ class TestServerPerformance:
 
         return wrapper, client
 
-    @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_large_message_throughput(self, server_client_pair, benchmark):
         """Test large message throughput for both TCP and Unix sockets"""
         server, client_factory, connection_type = server_client_pair
         wrapper, client = await self.setup_connection(server, client_factory)
 
         try:
-            # Setup message handling
-            responses = []
-            receive_event = asyncio.Event()
-            original_handle_message = client._handle_message
+            messages_received = []
+            message_receive_event = asyncio.Event()
 
             async def test_handle_message(message):
-                await original_handle_message(message)
-                responses.append(message)
-                receive_event.set()
+                messages_received.append(message)
+                message_receive_event.set()
 
             client._handle_message = test_handle_message
             receive_task = asyncio.create_task(client.receive_messages())
 
-            # Prepare large message
             message_size = 100 * 1024  # 100KB
             large_message = "X" * message_size
 
-            # Benchmark function
             async def send_receive_cycle():
-                responses.clear()
-                receive_event.clear()
+                messages_received.clear()
+                message_receive_event.clear()
+
                 await client.send_message(large_message)
                 try:
-                    await asyncio.wait_for(receive_event.wait(), timeout=5.0)
+                    await asyncio.wait_for(message_receive_event.wait(), 5.0)
                 except asyncio.TimeoutError:
                     pytest.fail(f"{connection_type}: Timeout waiting for response")
-                assert len(responses) == 1
-                assert len(responses[0].content) == message_size
 
-            # Run benchmark with description
+                assert len(messages_received) == 1
+                assert len(messages_received[0].content) == message_size
+                assert await self.wait_for_messages_processed(
+                    server, client.session_id, 1)
+
             benchmark.extra_info.update({
                 'connection_type': connection_type,
                 'test_name': 'large_message'
@@ -608,8 +628,6 @@ class TestServerPerformance:
             )
 
         finally:
-            # Cleanup
-            client._handle_message = original_handle_message
             receive_task.cancel()
             try:
                 await receive_task
@@ -664,36 +682,69 @@ class TestServerPerformance:
             await client.disconnect()
             await wrapper.stop()
 
-    @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_concurrent_clients(self, server_client_pair, benchmark):
         """Test concurrent client performance for both TCP and Unix sockets"""
         server, client_factory, connection_type = server_client_pair
         wrapper = ServerWrapper(server)
         await wrapper.start()
-        await asyncio.sleep(0.1)
 
         try:
             async def concurrent_test():
                 NUM_CLIENTS = 5
-                # Create and connect clients
                 clients = []
-                for _ in range(NUM_CLIENTS):
+                receive_tasks = []
+                messages_received = {i: [] for i in range(NUM_CLIENTS)}
+                client_ready_events = [asyncio.Event() for _ in range(NUM_CLIENTS)]
+
+                for i in range(NUM_CLIENTS):
                     client = client_factory()
-                    assert await self.wait_for_client_connect(client)
+                    assert await client.connect()
                     clients.append(client)
 
-                # Send test messages
-                tasks = []
+                    def create_handler(client_idx):
+                        async def handler(message):
+                            messages_received[client_idx].append(message)
+                            client_ready_events[client_idx].set()
+
+                        return handler
+
+                    client._handle_message = create_handler(i)
+                    receive_tasks.append(asyncio.create_task(
+                        client.receive_messages()))
+
+                send_tasks = []
                 for client in clients:
-                    tasks.append(asyncio.create_task(client.send_message("Test message")))
+                    send_tasks.append(client.send_message("Test message"))
 
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*send_tasks)
 
-                # Cleanup clients
+                # 等待所有客户端接收消息
+                wait_tasks = [
+                    asyncio.create_task(
+                        asyncio.wait_for(event.wait(), 5.0)
+                    ) for event in client_ready_events
+                ]
+                try:
+                    await asyncio.gather(*wait_tasks)
+                except asyncio.TimeoutError:
+                    pytest.fail("Timeout waiting for client messages")
+
+                for i, client in enumerate(clients):
+                    assert len(messages_received[i]) > 0
+                    assert await self.wait_for_messages_processed(
+                        server, client.session_id, 1)
+
+                # 清理
+                for task in receive_tasks:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
                 for client in clients:
                     await client.disconnect()
 
-            # Run benchmark with description
             benchmark.extra_info.update({
                 'connection_type': connection_type,
                 'test_name': 'concurrent_clients'
@@ -708,37 +759,42 @@ class TestServerPerformance:
         finally:
             await wrapper.stop()
 
-    @pytest.mark.asyncio
+    @pytest.mark.benchmark
     async def test_message_latency(self, server_client_pair, benchmark):
         """Test message round-trip latency for both TCP and Unix sockets"""
         server, client_factory, connection_type = server_client_pair
         wrapper, client = await self.setup_connection(server, client_factory)
 
         try:
-            # Setup message handling
             response_received = asyncio.Event()
-            original_handle_message = client._handle_message
+            messages_received = []
 
             async def test_handle_message(message):
-                await original_handle_message(message)
+                messages_received.append(message)
                 response_received.set()
 
             client._handle_message = test_handle_message
             receive_task = asyncio.create_task(client.receive_messages())
 
-            # Benchmark function
             async def measure_latency():
+                messages_received.clear()
                 response_received.clear()
+
                 start_time = time.time()
                 await client.send_message("ping")
+
                 try:
-                    await asyncio.wait_for(response_received.wait(), timeout=1.0)
+                    await asyncio.wait_for(response_received.wait(), 1.0)
                     latency = time.time() - start_time
+
+                    assert len(messages_received) == 1
+                    assert await self.wait_for_messages_processed(
+                        server, client.session_id, 1)
+
                     return latency
                 except asyncio.TimeoutError:
                     pytest.fail(f"{connection_type}: Timeout measuring latency")
 
-            # Run benchmark with description
             benchmark.extra_info.update({
                 'connection_type': connection_type,
                 'test_name': 'message_latency'
@@ -751,7 +807,6 @@ class TestServerPerformance:
             )
 
         finally:
-            client._handle_message = original_handle_message
             receive_task.cancel()
             try:
                 await receive_task
