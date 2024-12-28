@@ -333,7 +333,9 @@ class BaseServerTests:
 
             # 等待服务器停止，但不处理异常（因为客户端可能已经断开）
             try:
+                print("Waiting for stopping task...")
                 await stop_task
+                print("Task stopped...")
             except Exception as e:
                 print(f"Non-critical error during server stop: {e}")
 

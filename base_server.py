@@ -20,6 +20,8 @@ class BaseServer(IServer):
         self.session_cls = session_cls
         self._server: Optional[asyncio.AbstractServer] = None
         self._heartbeat_task: Optional[asyncio.Task] = None
+        # 添加任务跟踪字典
+        self._session_tasks: Dict[str, asyncio.Task] = {}
 
     @property
     def socket_path(self) -> Optional[str]:
@@ -33,10 +35,12 @@ class BaseServer(IServer):
 
     async def stop(self) -> None:
         """停止服务器并清理所有资源"""
+        print("Stopping server...")
         self.running = False
 
         # 获取当前所有会话的快照
         current_sessions = list(self.sessions.values())
+        print(f"Current sessions: {len(current_sessions)}")
 
         # 向所有客户端发送服务器停止的消息
         disconnect_tasks = []
@@ -53,33 +57,55 @@ class BaseServer(IServer):
 
         # 等待所有断开消息发送完成
         if disconnect_tasks:
+            print("Waiting for all disconnect messages to complete...")
             await asyncio.gather(*disconnect_tasks, return_exceptions=True)
+            print("All disconnect messages sent.")
             # 给客户端一点时间处理断开消息
             await asyncio.sleep(0.5)
 
+        # 取消所有会话相关的任务
+        print("Cancelling session tasks...")
+        for task in self._session_tasks.values():
+            if not task.done():
+                task.cancel()
+
+        # 等待所有会话任务完成
+        if self._session_tasks:
+            await asyncio.gather(*self._session_tasks.values(), return_exceptions=True)
+            self._session_tasks.clear()
+
         # 停止心跳任务
         if self._heartbeat_task:
+            print("Stopping heartbeat task...")
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
             except asyncio.CancelledError:
+                print("Heartbeat task cancelled.")
                 pass
 
         # 停止服务器监听
         if self._server:
+            print("Closing server...")
+            pending_tasks = asyncio.all_tasks()
+            print(f"Pending tasks before server close: {pending_tasks}")
             self._server.close()
             await self._server.wait_closed()
+            print("Server closed.")
 
         # 关闭所有会话的连接
         for session in current_sessions:
             try:
+                print(f"Closing session: {session}")
                 await session.close()
             except Exception as e:
                 print(f"Error closing session {session}: {e}")
 
         # 清空会话字典
+        print("Clearing sessions...")
         self.sessions.clear()
 
+        print("Running cleanup...")
         await self._cleanup()
         print("Server stopped")
 
@@ -232,31 +258,51 @@ class BaseServer(IServer):
             self.sessions[session.session_id] = session
             print(f"New connection established: {session}")
 
-            # 开始正常的消息处理循环
-            while self.running and session.is_connected:
-                try:
-                    data = await self._read_complete_message(reader)
-                    if not data:
-                        break
+            # 创建并保存消息处理任务
+            message_task = asyncio.create_task(
+                self._handle_client_messages(session, reader)
+            )
+            self._session_tasks[session.session_id] = message_task
 
-                    message = self.message_handler.decode_message(data)
-                    if message.session_id != session.session_id:
-                        print(f"Invalid session ID from {session}")
-                        break
-
-                    await self.process_message(session, message)
-
-                except ValueError as e:
-                    print(f"Error processing message from {session}: {e}")
-                except Exception as e:
-                    print(f"Error in message loop: {e}")
-                    break
+            # 等待消息处理任务完成
+            try:
+                await message_task
+            except asyncio.CancelledError:
+                print(f"Message handling task cancelled for {session}")
+            except Exception as e:
+                print(f"Error in message handling task for {session}: {e}")
 
         except Exception as e:
             print(f"Error handling client: {e}")
         finally:
             if session.session_id in self.sessions:
                 await self.remove_session(session.session_id)
+
+    async def _handle_client_messages(
+            self,
+            session: ISession,
+            reader: asyncio.StreamReader
+    ) -> None:
+        """处理客户端消息的主循环"""
+        while self.running and session.is_connected:
+            try:
+                data = await self._read_complete_message(reader)
+                if not data:
+                    break
+
+                message = self.message_handler.decode_message(data)
+                if message.session_id != session.session_id:
+                    print(f"Invalid session ID from {session}")
+                    break
+
+                await self.process_message(session, message)
+
+            except ValueError as e:
+                print(f"Error processing message from {session}: {e}")
+            except Exception as e:
+                print(f"Error in message loop: {e}")
+                break
+
 
     async def _create_session(
             self,
@@ -332,9 +378,20 @@ class BaseServer(IServer):
                     await self.remove_session(session_id)
 
     async def remove_session(self, session_id: str):
-        """移除会话"""
+        """移除会话及其相关任务"""
         if session_id in self.sessions:
             session = self.sessions[session_id]
+            # 取消并清理会话的消息处理任务
+            if session_id in self._session_tasks:
+                task = self._session_tasks[session_id]
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                del self._session_tasks[session_id]
+
             await session.close()
             del self.sessions[session_id]
             print(f"Session {session} closed")
