@@ -20,7 +20,7 @@ class AsyncUnixServer(BaseServer):
 
     def __init__(self, socket_path: str = '/tmp/chat.sock'):
         super().__init__(UnixSession)
-        self.socket_path = socket_path
+        self._socket_path = socket_path
 
     async def start(self) -> None:
         """完整的服务器启动流程"""

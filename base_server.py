@@ -13,12 +13,17 @@ from interfaces import IServer, ISession
 class BaseServer(IServer):
     """服务器基类"""
     def __init__(self, session_cls: Type[BaseSession]):
+        self._socket_path = None
         self.sessions: Dict[str, ISession] = {}
         self.running = True
         self.message_handler = EnhancedMessageHandler()
         self.session_cls = session_cls
         self._server: Optional[asyncio.AbstractServer] = None
         self._heartbeat_task: Optional[asyncio.Task] = None
+
+    @property
+    def socket_path(self) -> Optional[str]:
+        return self._socket_path
 
     @abstractmethod
     async def start(self) -> None:
@@ -29,6 +34,28 @@ class BaseServer(IServer):
     async def stop(self) -> None:
         """停止服务器并清理所有资源"""
         self.running = False
+
+        # 获取当前所有会话的快照
+        current_sessions = list(self.sessions.values())
+
+        # 向所有客户端发送服务器停止的消息
+        disconnect_tasks = []
+        for session in current_sessions:
+            if session.is_connected:  # 只向仍然连接的会话发送消息
+                try:
+                    message = PresetMessages.disconnect(
+                        session.session_id,
+                        reason="Server shutting down"
+                    )
+                    disconnect_tasks.append(self.send_message(session, message))
+                except Exception as e:
+                    print(f"Error sending disconnect message to {session}: {e}")
+
+        # 等待所有断开消息发送完成
+        if disconnect_tasks:
+            await asyncio.gather(*disconnect_tasks, return_exceptions=True)
+            # 给客户端一点时间处理断开消息
+            await asyncio.sleep(0.5)
 
         # 停止心跳任务
         if self._heartbeat_task:
@@ -43,9 +70,15 @@ class BaseServer(IServer):
             self._server.close()
             await self._server.wait_closed()
 
-        # 清理所有会话
-        for session_id in list(self.sessions.keys()):
-            await self.remove_session(session_id)
+        # 关闭所有会话的连接
+        for session in current_sessions:
+            try:
+                await session.close()
+            except Exception as e:
+                print(f"Error closing session {session}: {e}")
+
+        # 清空会话字典
+        self.sessions.clear()
 
         await self._cleanup()
         print("Server stopped")

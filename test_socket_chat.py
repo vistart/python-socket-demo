@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import socket
 import sys
@@ -10,6 +11,7 @@ import pytest
 import pytest_asyncio
 
 from base_server import BaseServer
+from message import MessageType
 from tcp_client import AsyncTCPClient
 from tcp_server import AsyncTCPServer
 from unix_client import AsyncUnixClient
@@ -280,6 +282,174 @@ class BaseServerTests:
                 await receive_task
             except asyncio.CancelledError:
                 pass
+
+    @pytest.mark.asyncio
+    async def test_server_shutdown(self, get_server, get_client):
+        """测试服务器主动停机场景"""
+        server = get_server
+        client = get_client
+
+        # 确保客户端连接成功
+        await client.connect()
+        assert await self.wait_for_session_active(server, client)
+
+        # 创建一个事件来跟踪断开消息的接收
+        disconnect_received = asyncio.Event()
+        disconnect_reason = None
+
+        # 重写客户端的消息处理方法来捕获断开消息
+        original_handle_message = client._handle_message
+
+        async def test_handle_message(message):
+            nonlocal disconnect_reason
+            await original_handle_message(message)
+            if message.type == MessageType.DISCONNECT.value:
+                try:
+                    if message.content_type == 'application/json':
+                        disconnect_info = json.loads(message.content.decode('utf-8'))
+                        disconnect_reason = disconnect_info.get('reason')
+                except Exception:
+                    pass
+                disconnect_received.set()
+
+        client._handle_message = test_handle_message
+
+        # 启动消息接收任务
+        receive_task = asyncio.create_task(client.receive_messages())
+
+        try:
+            # 停止服务器
+            stop_task = asyncio.create_task(server.stop())
+
+            # 等待接收断开消息，设置1秒超时
+            try:
+                await asyncio.wait_for(disconnect_received.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pytest.fail("Did not receive disconnect message from server")
+
+            # 验证断开原因
+            assert disconnect_reason == "Server shutting down", \
+                f"Unexpected disconnect reason: {disconnect_reason}"
+
+            # 等待服务器停止，但不处理异常（因为客户端可能已经断开）
+            try:
+                await stop_task
+            except Exception as e:
+                print(f"Non-critical error during server stop: {e}")
+
+            # 验证客户端状态
+            assert client.running == False, "Client should stop running after server disconnect"
+            assert len(server.sessions) == 0, "All sessions should be cleaned up"
+
+        finally:
+            # 清理
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+            client._handle_message = original_handle_message
+            await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_multiple_clients_server_shutdown(self, get_server, get_client):
+        """测试服务器停机时多个客户端的行为"""
+        server = get_server
+        clients = []
+        NUM_CLIENTS = 3
+
+        # 初始化任务和事件列表
+        disconnect_events = []
+        disconnect_reasons = []
+        receive_tasks = []
+
+        try:
+            # 创建并连接多个客户端，并立即设置它们的消息处理器
+            for i in range(NUM_CLIENTS):
+                # 创建客户端并连接
+                client = get_client  # 直接使用夹具返回的客户端
+                success = await client.connect()
+                assert success
+                assert await self.wait_for_session_active(server, client)
+
+                # 为当前客户端创建消息处理器
+                disconnect_event = asyncio.Event()
+                disconnect_events.append(disconnect_event)
+                disconnect_reasons.append(None)
+
+                # 使用闭包捕获正确的索引
+                def create_handler(client_idx):
+                    original_handle_message = client._handle_message
+
+                    async def handler(message):
+                        await original_handle_message(message)
+                        if message.type == MessageType.DISCONNECT.value:
+                            try:
+                                if message.content_type == 'application/json':
+                                    disconnect_info = json.loads(message.content.decode('utf-8'))
+                                    disconnect_reasons[client_idx] = disconnect_info.get('reason')
+                            except Exception:
+                                pass
+                            disconnect_events[client_idx].set()
+
+                    return handler
+
+                # 设置消息处理器并启动接收任务
+                client._handle_message = create_handler(i)
+                receive_tasks.append(asyncio.create_task(client.receive_messages()))
+                clients.append(client)
+
+            # 等待所有客户端完全准备好
+            await asyncio.sleep(0.1)
+
+            # 停止服务器
+            server_stop_task = asyncio.create_task(server.stop())
+
+            # 等待所有客户端接收断开消息，适当延长超时时间
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(event.wait() for event in disconnect_events)),
+                    timeout=2.0  # 增加超时时间
+                )
+            except asyncio.TimeoutError:
+                # 如果超时，打印更多调试信息
+                events_status = [event.is_set() for event in disconnect_events]
+                reasons_status = [reason for reason in disconnect_reasons]
+                sessions_info = [(s.session_id, s.is_connected) for s in server.sessions.values()]
+                pytest.fail(
+                    f"Not all clients received disconnect message.\n"
+                    f"Events status: {events_status}\n"
+                    f"Reasons received: {reasons_status}\n"
+                    f"Server sessions: {sessions_info}"
+                )
+
+            # 验证所有客户端收到正确的断开原因
+            for i, reason in enumerate(disconnect_reasons):
+                assert reason == "Server shutting down", \
+                    f"Client {i} received unexpected disconnect reason: {reason}"
+
+            # 等待服务器停止
+            try:
+                await server_stop_task
+            except Exception as e:
+                print(f"Non-critical error during server stop: {e}")
+
+            # 验证所有客户端状态
+            for i, client in enumerate(clients):
+                assert client.running == False, f"Client {i} should stop running"
+            assert len(server.sessions) == 0, "All sessions should be cleaned up"
+
+        finally:
+            # 清理所有任务和客户端
+            for task in receive_tasks:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            for client in clients:
+                await client.disconnect()
 
 
 

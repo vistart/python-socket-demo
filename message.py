@@ -140,11 +140,22 @@ class PresetMessages:
         )
 
     @staticmethod
-    def disconnect(session_id: str) -> Message:
+    def disconnect(session_id: str, reason: Optional[str] = None) -> Message:
+        """创建带原因的断开连接消息
+
+        Args:
+            session_id: 会话ID
+            reason: 断开连接的原因
+        """
+        content = {
+            "message": "Disconnecting",
+            "reason": reason or "Client disconnecting"
+        }
         return Message(
             MessageType.DISCONNECT.value,
-            "Client disconnecting".encode(),
-            session_id
+            json.dumps(content).encode(),
+            session_id,
+            'application/json'
         )
 
     @staticmethod

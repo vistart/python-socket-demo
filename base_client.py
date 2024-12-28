@@ -1,4 +1,5 @@
 import asyncio
+import json
 import struct
 from abc import abstractmethod
 from typing import Optional
@@ -219,8 +220,19 @@ class BaseAsyncClient(IClient):
             print(f"Error from server: {message.content}")
             self.running = False
         elif message.type == MessageType.DISCONNECT.value:
-            print("Server requested disconnect")
-            self.running = False
+            try:
+                if message.content_type == 'application/json':
+                    disconnect_info = json.loads(message.content.decode('utf-8'))
+                    reason = disconnect_info.get('reason', 'No reason provided')
+                    print(f"Server requested disconnect: {reason}")
+                else:
+                    print("Server requested disconnect")
+            except json.JSONDecodeError:
+                print("Server requested disconnect")
+            except Exception as e:
+                print(f"Error processing disconnect message: {e}")
+            finally:
+                self.running = False
 
     async def _handle_handshake(self, init_data: bytes) -> bool:
         """处理握手过程
