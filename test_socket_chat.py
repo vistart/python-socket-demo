@@ -11,6 +11,7 @@ import pytest_asyncio
 from base_server import BaseServer
 from tcp_client import AsyncTCPClient
 from tcp_server import AsyncTCPServer
+from test_helpers import is_windows, skip_on_windows
 from unix_client import AsyncUnixClient
 from unix_server import AsyncUnixServer
 
@@ -305,6 +306,7 @@ class TestTCPServer(BaseServerTests):
 
 
 # Unix套接字服务器具体测试类
+@skip_on_windows
 class TestUnixServer(BaseServerTests):
     """Unix套接字服务器测试用例"""
 
@@ -332,6 +334,9 @@ class TestServerPerformance:
     @pytest.fixture(params=['tcp', 'unix'])
     def server_client_pair(self, request) -> Tuple[BaseServer, Callable, str]:
         """Fixture to provide server-client pairs for both TCP and Unix sockets"""
+        if request.param == 'unix' and is_windows():
+            pytest.skip("Unix sockets not supported on Windows")
+
         if request.param == 'tcp':
             host, port = 'localhost', find_free_port()
             return (
