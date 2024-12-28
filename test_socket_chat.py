@@ -511,7 +511,6 @@ else:
 
 # 性能基准测试
 @pytest.mark.benchmark
-@pytest.mark.skipif(sys.platform.startswith('win'), reason="not supported on Windows")
 class TestServerPerformance:
     """Server performance benchmark tests for both TCP and Unix sockets"""
 
@@ -537,6 +536,8 @@ class TestServerPerformance:
                 f'TCP({host}:{port})'
             )
         else:
+            if sys.platform.startswith('win'):
+                pytest.skip("not supported on Windows")
             socket_path = get_temp_socket_path()
             return (
                 AsyncUnixServer(socket_path),
