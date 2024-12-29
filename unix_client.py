@@ -8,13 +8,13 @@ class AsyncUnixClient(BaseAsyncClient):
 
     def __init__(self, socket_path: str = '/tmp/chat.sock'):
         super().__init__()
-        self.socket_path = socket_path
+        self._socket_path = socket_path
 
     async def connect(self) -> bool:
         """连接到Unix套接字服务器"""
         try:
             self.reader, self.writer = await asyncio.open_unix_connection(
-                self.socket_path
+                self._socket_path
             )
 
             # 处理握手
@@ -24,7 +24,7 @@ class AsyncUnixClient(BaseAsyncClient):
 
             self.connected = True
             self.running = True
-            print(f"Connected to Unix socket at {self.socket_path}")
+            print(f"Connected to Unix socket at {self._socket_path}")
             print(f"Session established: {self.session_id}")
             return True
 

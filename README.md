@@ -88,8 +88,8 @@ sequenceDiagram
     
     par Heartbeat Loop
         loop Every 5 seconds
-            S->>C: HEARTBEAT (ping)
-            C->>S: HEARTBEAT (pong)
+            C->>S: HEARTBEAT (ping)
+            S->>C: HEARTBEAT (pong)
         end
     and Message Exchange
         Note over C: Client continues sending messages
